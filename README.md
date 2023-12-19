@@ -1,6 +1,9 @@
 # Django Face Recognition System
 
-This Django project implements a face recognition system using the `face_recognition` library. It includes functionality for encoding faces from a training dataset, recognizing faces in new images, and running these tasks asynchronously using Celery.
+This Django project implements a face recognition system using the `face_recognition` library. It includes functionality for comparing a new face encoding against each individual in the database one by one in a straightforward approach. 
+
+This strategy, while simple, does not scale well with an increasing number of people. Each comparison necessitates substantial computer effort, and as the dataset develops, the overall time and resources required for these computations climb linearly. This causes a performance bottleneck, especially in bigger systems with dozens or millions of users. The additional computational load can strain the system, resulting in slower reaction times and perhaps higher operational expenses as more powerful hardware is required to meet the demand.
+
 
 ## Features
 
@@ -24,4 +27,35 @@ This Django project implements a face recognition system using the `face_recogni
 1. Clone the repository:
   ```bash
   git clone https://github.com/yourusername/facematch.git
+   ```
+2. Navigate to the cloned directory:
+   ```bash
+   cd facematch
+   ```
+3. Install packages
+   ```bash
+   pip install requirements.txt
+   ```
+
+### Configuration
+
+1. **Set up a message broker** (e.g., Redis) for Celery.
+2. **Configure the broker URL** in your project's `settings.py`:
+    ```python
+    CELERY_BROKER_URL = 'redis://localhost:6379/0'  # Modify as per your broker configuration
+    ```
+3. Run migrations to set up your database:
+  ```python 
+    python manage.py migrate
+  ```
+
+### Running the Project
+
+1. Start the Django development server:
+  ```python 
+  python manage.py runserver
+  ```
+2. In a separate terminal, start the Celery worker:
+  ```css
+    celery -A facematch worker -l info
   ```
