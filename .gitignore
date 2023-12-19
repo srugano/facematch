@@ -141,3 +141,8 @@ server.key*
 #
 apiconfig.ini
 .idea/
+*.png
+*.jpg
+*.jpeg
+*.webp
+staticfiles/

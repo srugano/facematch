@@ -1,1 +1,1 @@
-default_app_config = 'recognizeapp.apps.RecognizeappConfig'
+default_app_config = "recognizeapp.apps.RecognizeappConfig"
