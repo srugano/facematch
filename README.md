@@ -23,5 +23,5 @@ This Django project implements a face recognition system using the `face_recogni
 
 1. Clone the repository:
   ```bash
-  git clone https://github.com/yourusername/face_recognition_django.git
+  git clone https://github.com/yourusername/facematch.git
   ```
