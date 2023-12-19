@@ -5,3 +5,4 @@ Pillow
 django-storages[azure]
 celery
 redis
+django-celery-beat

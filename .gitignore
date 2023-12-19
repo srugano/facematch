@@ -146,3 +146,4 @@ apiconfig.ini
 *.jpeg
 *.webp
 staticfiles/
+*.pkl
