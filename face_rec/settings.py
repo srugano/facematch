@@ -120,7 +120,7 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_LOCATION = "static"
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_LOCATION = "media"
 
 # Default primary key field type
@@ -128,3 +128,5 @@ MEDIA_LOCATION = "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_BROKER_URL = "redis://localhost:6379/0"

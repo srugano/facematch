@@ -1,6 +1,7 @@
-from django.db import models
 import json
+
 import numpy as np
+from django.db import models
 
 
 class Individual(models.Model):

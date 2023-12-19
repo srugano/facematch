@@ -3,3 +3,5 @@ face-recognition
 numpy
 Pillow
 django-storages[azure]
+celery
+redis
