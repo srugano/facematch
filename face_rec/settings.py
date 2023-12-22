@@ -131,3 +131,21 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
 CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
 CELERY_BROKER_URL = "redis://localhost:6379/0"
+
+# settings.py
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'myapp': {  # Replace 'myapp' with your Django app's name
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+    },
+}
