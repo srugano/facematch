@@ -7,8 +7,10 @@ import face_recognition
 from django.core.files.storage import default_storage
 import pickle
 from django.core.files.base import ContentFile
-import os
+from pathlib import Path
 import logging
+from multiprocessing import Pool, cpu_count
+from .utils import get_face_detections_dnn, find_duplicates, encode_faces
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +22,10 @@ def load_encodings():
 
 
 @shared_task
-def generate_face_encoding(individual_id):
+def generate_face_encoding(individual_id, tolerance=0.6):
     start_time = time.time()
     process = psutil.Process()
-    ram_before = process.memory_info().rss / (1024 ** 2)
+    ram_before = process.memory_info().rss / (1024**2)
     logger.warning("Running face recognition for this individual")
     try:
         individual = Individual.objects.get(id=individual_id)
@@ -35,7 +37,7 @@ def generate_face_encoding(individual_id):
 
             for other_id, other_encoding in all_encodings.items():
                 if other_id != individual.id:
-                    results = face_recognition.compare_faces([np.array(other_encoding)], current_encoding)
+                    results = face_recognition.compare_faces([np.array(other_encoding)], current_encoding, tolerance)
                     if any(results):
                         matches.append(str(other_id))
 
@@ -47,39 +49,49 @@ def generate_face_encoding(individual_id):
     except IndexError:
         pass
 
-    ram_after = process.memory_info().rss / (1024 ** 2)
+    ram_after = process.memory_info().rss / (1024**2)
     elapsed_time = time.time() - start_time
     ram_used = ram_after - ram_before
 
-    logger.warning(f"generate_face_encoding task completed in {elapsed_time} seconds, using approximately {ram_used} MB of RAM")
+    logger.warning(
+        f"generate_face_encoding task completed in {elapsed_time} seconds, using approximately {ram_used} MB of RAM"
+    )
 
 
 @shared_task
-def nightly_face_encoding_task(model="hog"):
+def nightly_face_encoding_task(
+    folder_path,
+    model="hog",
+):
     start_time = time.time()
-    process = psutil.Process()
-    ram_before = process.memory_info().rss / (1024 ** 2)
 
     logger.warning("Starting nightly face encoding task")
-    encodings = {}
-    for individual in Individual.objects.all():
-        if individual.photo:
-            image = face_recognition.load_image_file(individual.photo.path)
-            face_locations = face_recognition.face_locations(image, model=model)
-            face_encodings = face_recognition.face_encodings(image, face_locations)
-            if face_encodings:
-                encodings[individual.id] = face_encodings[0]
+    face_data = {}
+    images_without_faces_count = 0
 
-    encodings_data = pickle.dumps(encodings)
+    with Pool(cpu_count()) as pool:
+        # Process images in parallel
+        for image_path, regions in pool.starmap(
+            get_face_detections_dnn,
+            [str(image_path) for image_path in list(Path(folder_path).glob("*.jpg"))],
+        ):
+            if regions:  # Proceed only if faces are detected
+                _, encodings = encode_faces(image_path, regions)
+                face_data[image_path] = encodings
+            else:
+                images_without_faces_count += 1  # Increment counter if no faces are detected
+
+    # Save face encodings to a pickle file
+    encodings_data = pickle.dumps(face_data)
     file_name = "encodings.pkl"
     file_content = ContentFile(encodings_data)
     default_storage.save(file_name, file_content)
 
-    file_path = default_storage.path(file_name)
-    file_size = os.path.getsize(file_path) / (1024 ** 2)
+    # Find duplicates
+    duplicates = find_duplicates(face_data, threshold=0.3)
 
-    ram_after = process.memory_info().rss / (1024 ** 2)
-    elapsed_time = time.time() - start_time
-    ram_used = ram_after - ram_before
+    end_time = time.time()
 
-    logger.warning(f"Recognition task completed in {elapsed_time} seconds, using approximately {ram_used} MB of RAM, generated file size: {file_size} MB")
+    logger.warning(
+        f"Nightly face encoding task completed in {end_time - start_time:.2f} seconds, found {len(duplicates)} duplicates"
+    )

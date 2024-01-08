@@ -135,17 +135,21 @@ CELERY_BROKER_URL = "redis://localhost:6379/0"
 # settings.py
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
         },
     },
-    'loggers': {
-        'myapp': {  # Replace 'myapp' with your Django app's name
-            'handlers': ['console'],
-            'level': 'INFO',
+    "loggers": {
+        "myapp": {  # Replace 'myapp' with your Django app's name
+            "handlers": ["console"],
+            "level": "INFO",
         },
     },
 }
+
+# Specify the correct paths to your .prototxt and .caffemodel files
+PROTOTXT = "static/deploy.prototxt"
+CAFFEMODEL = "static/res10_300x300_ssd_iter_140000.caffemodel"

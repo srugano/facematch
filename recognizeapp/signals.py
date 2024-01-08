@@ -9,4 +9,4 @@ from .tasks import generate_face_encoding
 @receiver(post_save, sender=Individual)
 def trigger_face_encoding(sender, instance, created, **kwargs):
     if created and instance.photo:
-        transaction.on_commit(lambda: generate_face_encoding.delay(instance.id))
+        transaction.on_commit(lambda: generate_face_encoding.delay(instance.id, 0.3))
