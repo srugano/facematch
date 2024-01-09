@@ -58,28 +58,33 @@ def generate_face_encoding(individual_id, tolerance=0.6):
     )
 
 
-@shared_task
-def nightly_face_encoding_task(
-    folder_path,
-    model="hog",
-):
-    start_time = time.time()
+prototxt = "static/deploy.prototxt"
+caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
 
+
+@shared_task
+def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffemodel, threshold=0.3):
+    start_time = time.time()
     logger.warning("Starting nightly face encoding task")
+
     face_data = {}
     images_without_faces_count = 0
 
-    with Pool(cpu_count()) as pool:
-        # Process images in parallel
-        for image_path, regions in pool.starmap(
-            get_face_detections_dnn,
-            [str(image_path) for image_path in list(Path(folder_path).glob("*.jpg"))],
-        ):
-            if regions:  # Proceed only if faces are detected
-                _, encodings = encode_faces(image_path, regions)
-                face_data[image_path] = encodings
-            else:
-                images_without_faces_count += 1  # Increment counter if no faces are detected
+    all_image_paths = Path(folder_path).glob("*.jpg")
+    for image_path in all_image_paths:
+        image_path_str = str(image_path)
+        image_path, regions = get_face_detections_dnn(image_path_str, prototxt, caffemodel)
+
+        if regions:
+            _, encodings = encode_faces(image_path_str, regions)
+            face_data[image_path] = encodings
+        else:
+            images_without_faces_count += 1
+
+    # Find duplicates
+    duplicates = find_duplicates(face_data, threshold)
+
+    end_time = time.time()
 
     # Save face encodings to a pickle file
     encodings_data = pickle.dumps(face_data)
@@ -87,11 +92,7 @@ def nightly_face_encoding_task(
     file_content = ContentFile(encodings_data)
     default_storage.save(file_name, file_content)
 
-    # Find duplicates
-    duplicates = find_duplicates(face_data, threshold=0.3)
-
-    end_time = time.time()
-
     logger.warning(
-        f"Nightly face encoding task completed in {end_time - start_time:.2f} seconds, found {len(duplicates)} duplicates"
+        f"Nightly face encoding task completed in {end_time - start_time:.2f} seconds, "
+        f"found {len(duplicates)} duplicates, {images_without_faces_count} images without faces"
     )

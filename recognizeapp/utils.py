@@ -3,17 +3,18 @@ import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 import numpy as np
-from djang.conf import settings
+from django.conf import settings
 import cv2
 import face_recognition
 
+import logging
+
 # Define the path for storing face encodings
 DEFAULT_ENCODINGS_PATH = Path("output/encodings.pkl")
+logger = logging.getLogger(__name__)
 
 
-def get_face_detections_dnn(
-    image_path, prototxt=settings.PROTOTXT, caffemodel=settings.CAFFEMODEL
-):
+def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=settings.CAFFEMODEL):
     try:
         net = cv2.dnn.readNetFromCaffe(prototxt, caffemodel)
         image = cv2.imread(image_path)
@@ -41,6 +42,8 @@ def get_face_detections_dnn(
 def encode_faces(image_path, face_regions):
     image = face_recognition.load_image_file(image_path)
     encodings = []
+    # logger.warning(f"regions {face_regions}")
+    # from celery.contrib import rdb; rdb.set_trace()
     for x1, y1, x2, y2 in face_regions:
         face_image = image[y1:y2, x1:x2]
         face_encodings = face_recognition.face_encodings(face_image)
