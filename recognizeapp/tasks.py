@@ -70,7 +70,7 @@ def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffem
     face_data = {}
     images_without_faces_count = 0
 
-    all_image_paths = Path(folder_path).glob("*.jpg")
+    all_image_paths = list(Path(folder_path).glob("*.jpg")) + list(Path(folder_path).glob("*.png"))
     for image_path in all_image_paths:
         image_path_str = str(image_path)
         image_path, regions = get_face_detections_dnn(image_path_str, prototxt, caffemodel)
