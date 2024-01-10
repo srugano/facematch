@@ -13,7 +13,8 @@ services:
       - db
     environment:
       - DATABASE_URL=postgres://user:password@db:5432/dbname
-      - MEDIA_FILES=/usr/src/app/media 
+      - MEDIA_FILES=/usr/src/app/media
+      - CELERY_BROKER_URL=redis://redis:6379/0 
   db:
     image: postgres
     volumes:
