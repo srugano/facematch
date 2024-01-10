@@ -2,10 +2,10 @@ version: '3.8'
 services:
   web:
     build: .
-    command: python manage.py runserver 0.0.0.0:8000
+    command: ./start.sh
     volumes:
       - .:/usr/src/app
-      - ~/Documents/UNICED/test 100/:/usr/src/app/media
+      - /home/stock/Documents/UNICEF/test 100/:/usr/src/app/media
     ports:
       - "8000:8000"
     depends_on:
@@ -13,6 +13,7 @@ services:
       - db
     environment:
       - DATABASE_URL=postgres://user:password@db:5432/dbname
+      - MEDIA_FILES=/usr/src/app/media 
   db:
     image: postgres
     volumes:
@@ -22,27 +23,10 @@ services:
       POSTGRES_USER: user
       POSTGRES_DB: dbname
   redis:
-    image: redis:7
-
-  # Celery Beat service
-  celery-beat:
-    image: python:3.10-slim-buster
-    volumes:
-      - .:/code
-    command: celery -A face_rec beat -l INFO
-    depends_on:
-      - redis
-      - db
-
-  # Celery Worker service
-  celery-worker:
-    image: python:3.10-slim-buster
-    volumes:
-      - .:/code
-    command: celery -A face_rec worker -l info
-    depends_on:
-      - redis
-      - db
+    restart: always
+    image: redis
+    expose:
+      - "6379"
 
 volumes:
   postgres_data:

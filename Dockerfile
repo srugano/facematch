@@ -13,4 +13,7 @@ EXPOSE 8000
 
 ENV PYTHONUNBUFFERED 1
 
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Make sure start.sh is executable
+RUN chmod +x start.sh
+
+CMD ["./start.sh"]
