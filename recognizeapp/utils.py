@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=settings.CAFFEMODEL):
     try:
         net = cv2.dnn.readNetFromCaffe(prototxt, caffemodel)
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
         image = cv2.imread(image_path)
         if image is None:
             raise ValueError(f"Unable to load image at path: {image_path}")
