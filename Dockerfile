@@ -74,6 +74,7 @@ RUN git clone https://github.com/davisking/dlib.git \
     && cd .. \
     && rm -rf dlib
 
+RUN pip install face-recognition
 COPY . .
 
 RUN chmod +x start.sh

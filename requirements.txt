@@ -16,8 +16,6 @@ django-storages==1.14.2
 django-timezone-field==6.1.0
 exceptiongroup==1.2.0
 executing==2.0.1
-face-recognition==1.3.0
-face-recognition-models==0.3.0
 ipdb==0.13.13
 ipython==8.19.0
 jedi==0.19.1
