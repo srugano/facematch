@@ -50,10 +50,14 @@ RUN git clone https://github.com/opencv/opencv.git \
              -D CUDA_HOST_COMPILER=/usr/bin/gcc-9 \
              -D CMAKE_INSTALL_PREFIX=/usr/local \
              -D INSTALL_C_EXAMPLES=OFF \
-             -D INSTALL_PYTHON_EXAMPLES=ON \
+             -D INSTALL_PYTHON_EXAMPLES=OFF \
              -D WITH_CUDA=ON \
-             -D CUDA_ARCH_BIN=8.7 \
+             -D CUDA_ARCH_BIN=5.2 \
              -D CUDA_ARCH_PTX="" \
+             -D BUILD_opencv_cudacodec=OFF \
+             -D ENABLE_FAST_MATH=1 \
+             -D CUDA_FAST_MATH=1 \
+             -D WITH_CUBLAS=1 \
              -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules \
              -D BUILD_EXAMPLES=OFF .. \
     && make -j$(nproc) \
