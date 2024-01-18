@@ -9,7 +9,6 @@ import pickle
 from django.core.files.base import ContentFile
 from pathlib import Path
 import logging
-from multiprocessing import Pool, cpu_count
 from .utils import get_face_detections_dnn, find_duplicates, encode_faces
 
 logger = logging.getLogger(__name__)
