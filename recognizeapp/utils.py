@@ -1,24 +1,20 @@
 # Import necessary libraries
+import logging
 import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-import numpy as np
-from django.conf import settings
+
 import cv2
 import face_recognition
-import dlib
-import logging
+import numpy as np
 
 # Define the path for storing face encodings
 DEFAULT_ENCODINGS_PATH = Path("output/encodings.pkl")
 logger = logging.getLogger(__name__)
 
 
-def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=settings.CAFFEMODEL):
+def get_face_detections_dnn(image_path, net):
     try:
-        net = cv2.dnn.readNetFromCaffe(prototxt, caffemodel)
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
         image = cv2.imread(image_path)
         if image is None:
             raise ValueError(f"Unable to load image at path: {image_path}")
@@ -57,7 +53,6 @@ def encode_faces(image_path, face_regions):
     return image_path, encodings
 
 
-
 def find_duplicates(face_encodings, threshold=0.4):
     duplicate_images = set()
 
@@ -73,6 +68,7 @@ def find_duplicates(face_encodings, threshold=0.4):
 
     return len(duplicate_images)
 
+
 def process_folder_parallel(folder_path, prototxt, caffemodel):
     start_time = time.time()
     image_paths = list(Path(folder_path).glob("*.jpg")) + list(Path(folder_path).glob("*.png"))
@@ -83,7 +79,8 @@ def process_folder_parallel(folder_path, prototxt, caffemodel):
     with Pool(cpu_count()) as pool:
         # Get face regions
         face_regions_results = pool.starmap(
-            get_face_detections_dnn, [(str(image_path), prototxt, caffemodel) for image_path in image_paths]
+            get_face_detections_dnn,
+            [(str(image_path), prototxt, caffemodel) for image_path in image_paths],
         )
 
         # Get face encodings and count images without faces

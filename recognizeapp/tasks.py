@@ -1,17 +1,23 @@
-import time
-import psutil
-import numpy as np
-from celery import shared_task
-from .models import Individual
-import face_recognition
-from django.core.files.storage import default_storage
-import pickle
-from django.core.files.base import ContentFile
-from pathlib import Path
 import logging
-from .utils import get_face_detections_dnn, find_duplicates, encode_faces
+import pickle
+import time
+from pathlib import Path
+
+import cv2
+import face_recognition
+import numpy as np
+import psutil
+from celery import shared_task
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+
+from .models import Individual
+from .utils import encode_faces, find_duplicates, get_face_detections_dnn
 
 logger = logging.getLogger(__name__)
+net = cv2.dnn.readNetFromCaffe("static/deploy.prototxt", "static/res10_300x300_ssd_iter_140000.caffemodel")
+net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
 
 
 def load_encodings():
@@ -57,12 +63,8 @@ def generate_face_encoding(individual_id, tolerance=0.6):
     )
 
 
-prototxt = "static/deploy.prototxt"
-caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
-
-
 @shared_task
-def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffemodel, threshold=0.3):
+def nightly_face_encoding_task(folder_path, threshold=0.3):
     start_time = time.time()
     logger.warning("Starting nightly face encoding task")
 
@@ -72,7 +74,7 @@ def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffem
     all_image_paths = list(Path(folder_path).glob("*.jpg")) + list(Path(folder_path).glob("*.png"))
     for image_path in all_image_paths:
         image_path_str = str(image_path)
-        image_path, regions = get_face_detections_dnn(image_path_str, prototxt, caffemodel)
+        image_path, regions = get_face_detections_dnn(image_path_str, net)
 
         if regions:
             _, encodings = encode_faces(image_path_str, regions)
