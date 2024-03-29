@@ -1,22 +1,20 @@
 # Import necessary libraries
+import logging
 import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-import numpy as np
-from django.conf import settings
+
 import cv2
 import face_recognition
-
-import logging
+import numpy as np
 
 # Define the path for storing face encodings
 DEFAULT_ENCODINGS_PATH = Path("output/encodings.pkl")
 logger = logging.getLogger(__name__)
 
 
-def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=settings.CAFFEMODEL):
+def get_face_detections_dnn(image_path, net):
     try:
-        net = cv2.dnn.readNetFromCaffe(prototxt, caffemodel)
         image = cv2.imread(image_path)
         if image is None:
             raise ValueError(f"Unable to load image at path: {image_path}")
@@ -42,27 +40,33 @@ def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=s
 def encode_faces(image_path, face_regions):
     image = face_recognition.load_image_file(image_path)
     encodings = []
-    # logger.warning(f"regions {face_regions}")
-    # from celery.contrib import rdb; rdb.set_trace()
-    for x1, y1, x2, y2 in face_regions:
-        face_image = image[y1:y2, x1:x2]
-        face_encodings = face_recognition.face_encodings(face_image)
-        if face_encodings:
-            encodings.append(face_encodings[0])
+
+    for region in face_regions:
+        if isinstance(region, (list, tuple)) and len(region) == 4:
+            top, right, bottom, left = region
+            adjusted_region = (top, right, bottom, left)
+            face_encodings = face_recognition.face_encodings(image, known_face_locations=[adjusted_region], model="cnn")
+            encodings.extend(face_encodings)
+        else:
+            logger.warning(f"Invalid face region format for image {image_path}")
+
     return image_path, encodings
 
 
 def find_duplicates(face_encodings, threshold=0.4):
-    duplicates = []
+    duplicate_images = set()
+
     for path1, encodings1 in face_encodings.items():
         for path2, encodings2 in face_encodings.items():
-            if path1 != path2:
+            if path1 != path2 and path2 not in duplicate_images:
                 for encoding1 in encodings1:
                     for encoding2 in encodings2:
                         distance = face_recognition.face_distance([encoding1], encoding2)
                         if distance < threshold:
-                            duplicates.append((path1, path2))
-    return duplicates
+                            duplicate_images.update([path1, path2])
+                            break  # Break the innermost loop if a duplicate is found
+
+    return len(duplicate_images)
 
 
 def process_folder_parallel(folder_path, prototxt, caffemodel):
@@ -75,7 +79,8 @@ def process_folder_parallel(folder_path, prototxt, caffemodel):
     with Pool(cpu_count()) as pool:
         # Get face regions
         face_regions_results = pool.starmap(
-            get_face_detections_dnn, [(str(image_path), prototxt, caffemodel) for image_path in image_paths]
+            get_face_detections_dnn,
+            [(str(image_path), prototxt, caffemodel) for image_path in image_paths],
         )
 
         # Get face encodings and count images without faces
