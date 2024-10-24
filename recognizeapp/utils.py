@@ -42,13 +42,14 @@ def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=s
 def encode_faces(image_path, face_regions):
     image = face_recognition.load_image_file(image_path)
     encodings = []
-    # logger.warning(f"regions {face_regions}")
-    # from celery.contrib import rdb; rdb.set_trace()
-    for x1, y1, x2, y2 in face_regions:
-        face_image = image[y1:y2, x1:x2]
-        face_encodings = face_recognition.face_encodings(face_image)
-        if face_encodings:
-            encodings.append(face_encodings[0])
+
+    face_locations = [(y1, x2, y2, x1) for (x1, y1, x2, y2) in face_regions]
+
+    face_encodings = face_recognition.face_encodings(image, known_face_locations=face_locations)
+
+    if face_encodings:
+        encodings.extend(face_encodings)
+
     return image_path, encodings
 
 
@@ -61,6 +62,7 @@ def find_duplicates(face_encodings, threshold=0.4):
                     for encoding2 in encodings2:
                         distance = face_recognition.face_distance([encoding1], encoding2)
                         if distance < threshold:
+                            logger.warning(f"Distance between {path1} and {path2}: {distance}")
                             duplicates.append((path1, path2))
     return duplicates
 
@@ -69,24 +71,20 @@ def process_folder_parallel(folder_path, prototxt, caffemodel):
     start_time = time.time()
     image_paths = list(Path(folder_path).glob("*.jpg")) + list(Path(folder_path).glob("*.png"))
 
-    face_data = {}  # Store face encodings for each image
-    images_without_faces_count = 0  # Counter for images without faces
+    face_data = {}
+    images_without_faces_count = 0
 
     with Pool(cpu_count()) as pool:
-        # Get face regions
         face_regions_results = pool.starmap(
             get_face_detections_dnn, [(str(image_path), prototxt, caffemodel) for image_path in image_paths]
         )
-
-        # Get face encodings and count images without faces
         for image_path, regions in face_regions_results:
-            if regions:  # Proceed only if faces are detected
+            if regions:
                 _, encodings = encode_faces(image_path, regions)
                 face_data[image_path] = encodings
             else:
-                images_without_faces_count += 1  # Increment counter if no faces are detected
+                images_without_faces_count += 1
 
-    # Find duplicates
     duplicates = find_duplicates(face_data, threshold=0.3)
 
     end_time = time.time()
