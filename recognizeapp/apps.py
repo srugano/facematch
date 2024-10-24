@@ -6,4 +6,4 @@ class RecognizeappConfig(AppConfig):
     name = "recognizeapp"
 
     def ready(self):
-        import recognizeapp.signals  # Import the signals module
+        import recognizeapp.signals

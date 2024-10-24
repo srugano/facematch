@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "recognizeapp",
+    "constance",
     "django_celery_beat",
 ]
 
@@ -153,3 +154,11 @@ LOGGING = {
 # Specify the correct paths to your .prototxt and .caffemodel files
 PROTOTXT = "static/deploy.prototxt"
 CAFFEMODEL = "static/res10_300x300_ssd_iter_140000.caffemodel"
+CONSTANCE_BACKEND = "constance.backends.redisd.RedisBackend"
+CONSTANCE_CONFIG = {
+    "TOLERANCE": (
+        0.6,
+        "Default distance between faces for duplicates. The lower the value, the more strict the comparison.",
+        float,
+    )
+}
