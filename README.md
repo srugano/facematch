@@ -61,12 +61,17 @@ This Django project implements a face recognition system using the `face_recogni
   ```
 2. In a separate terminal, start the Celery worker:
   ```bash
-  celery -A facematch worker -l info
+  celery -A face_rec worker -l info
   ```
 3. Running Celery Beat
   When you start your Celery worker, also start Celery Beat to ensure the scheduled tasks are executed:
   ```bash
-  celery -A facematch beat -l info
+  celery -A face_rec beat -l info
   ```
-4. From the admin site, run the task `nightly_face_encoding_task` from celery beat. It will produce the dataset necessair for the comparaison. 
-5. Add individuals from the admin websit. As you add individuals, the system will find duplicates gradually in the background and update the new individual with the IDs of the duplicates.
+4. From the admin site, run the task `nightly_face_encoding_task` from celery beat. It will produce the dataset necessair for the comparaison.
+```python
+In [2]: folder_path="/home/stock/dEV/face_rec/individual_photos/"
+
+In [3]: nightly_face_encoding_task.delay(folder_path=folder_path)
+``` 
+5. Add individuals from the admin website. As you add individuals, the system will find duplicates gradually in the background and update the new individual with the IDs of the duplicates.

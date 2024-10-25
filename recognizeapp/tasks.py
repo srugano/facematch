@@ -12,8 +12,24 @@ import logging
 from multiprocessing import Pool, cpu_count
 from .utils import get_face_detections_dnn, find_duplicates, encode_faces
 from constance import config
+import cv2
 
 logger = logging.getLogger(__name__)
+
+
+def preprocess_image_for_encoding(image_path):
+    """
+    Preprocess image to improve face detection in face_recognition.
+    Applies histogram equalization to the Y channel of YUV color space.
+    """
+    image = cv2.imread(image_path)
+    if image is None:
+        raise ValueError(f"Unable to load image at path: {image_path}")
+    yuv_image = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+    yuv_image[:, :, 0] = cv2.equalizeHist(yuv_image[:, :, 0])
+    equalized_image = cv2.cvtColor(yuv_image, cv2.COLOR_YUV2BGR)
+
+    return equalized_image
 
 
 def load_encodings():
@@ -29,14 +45,16 @@ def load_encodings():
 def save_encodings(encodings):
     """Save the updated encodings to the file."""
     encodings_data = pickle.dumps(encodings)
-    with default_storage.open("encodings.pkl", "wb") as file:
-        file.write(encodings_data)
+    file_name = "encodings.pkl"
+
+    if default_storage.exists(file_name):
+        default_storage.delete(file_name)
+    file_content = ContentFile(encodings_data)
+    default_storage.save(file_name, file_content)
 
 
 @shared_task
 def generate_face_encoding(individual_id, tolerance=config.TOLERANCE):
-    from constance import config
-
     start_time = time.time()
     process = psutil.Process()
     ram_before = process.memory_info().rss / (1024**2)
@@ -45,16 +63,12 @@ def generate_face_encoding(individual_id, tolerance=config.TOLERANCE):
     try:
         individual = Individual.objects.get(id=individual_id)
         if individual.photo:
-            image = face_recognition.load_image_file(individual.photo.path)
-            current_encoding = face_recognition.face_encodings(image)[0]
+            processed_image = preprocess_image_for_encoding(individual.photo.path)
+            rgb_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
+            current_encoding = face_recognition.face_encodings(rgb_image, model="cnn")[0]
             all_encodings = load_encodings()
             all_encodings[individual.id] = current_encoding
-            encodings_data = pickle.dumps(all_encodings)
-            file_name = "encodings.pkl"
-            file_content = ContentFile(encodings_data)
-            default_storage.save(file_name, file_content)
-
-            # Find duplicates with the updated encodings
+            save_encodings(all_encodings)
             matches = []
 
             for other_id, other_encoding in all_encodings.items():
@@ -90,7 +104,7 @@ caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
 
 
 @shared_task
-def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffemodel):
+def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffemodel, threshold=config.TOLERANCE):
 
     start_time = time.time()
     logger.warning("Starting nightly face encoding task")
@@ -104,17 +118,14 @@ def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffem
 
         if regions:
             _, encodings = encode_faces(image_path_str, regions)
-            face_data[image_path] = encodings
+            if encodings:
+                face_data[image_path] = encodings
         else:
             images_without_faces_count += 1
-
-    threshold = config.TOLERANCE
     duplicates = find_duplicates(face_data, threshold)
+    save_encodings(face_data)
+
     end_time = time.time()
-    encodings_data = pickle.dumps(face_data)
-    file_name = "encodings.pkl"
-    file_content = ContentFile(encodings_data)
-    default_storage.save(file_name, file_content)
 
     logger.warning(
         f"Nightly face encoding task completed in {end_time - start_time:.2f} seconds, "
