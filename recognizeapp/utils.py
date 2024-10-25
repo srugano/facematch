@@ -32,7 +32,7 @@ def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=s
         face_regions = []
         for i in range(0, detections.shape[2]):
             confidence = detections[0, 0, i, 2]
-            if confidence > 0.6:
+            if confidence > 0.7:
                 box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
                 face_regions.append(box.astype("int").tolist())
         return image_path, face_regions
@@ -42,11 +42,12 @@ def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=s
         return image_path, []
 
 
+
 def encode_faces(image_path, face_regions):
     image = face_recognition.load_image_file(image_path)
     encodings = []
     face_locations = [(y1, x2, y2, x1) for (x1, y1, x2, y2) in face_regions]
-    face_encodings = face_recognition.face_encodings(image, known_face_locations=face_locations, model="large")
+    face_encodings = face_recognition.face_encodings(image, known_face_locations=face_locations, model="cnn")
     for encoding in face_encodings:
         if len(encoding) == 128:
             encodings.append(np.array(encoding))
@@ -64,7 +65,7 @@ def find_duplicates(face_encodings, threshold=0.2):
                 distances = face_recognition.face_distance(encodings2, encoding1)
                 valid_distances = distances[distances <= threshold]
                 if valid_distances.size > 0:
-                    logger.warning(f"Duplicate found between {path1} and {path2} with distance(s): {valid_distances}")
+                    logger.info(f"Duplicate found between {path1} and {path2} with distance(s): {valid_distances}")
                     duplicates.append((path1, path2))
                     break
     return duplicates

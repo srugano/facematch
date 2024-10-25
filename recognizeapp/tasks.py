@@ -105,7 +105,9 @@ caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
 
 @shared_task
 def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffemodel, threshold=config.TOLERANCE):
-
+    start_time = time.time()
+    process = psutil.Process()
+    ram_before = process.memory_info().rss / (1024**2)
     start_time = time.time()
     logger.warning("Starting nightly face encoding task")
     face_data = {}
@@ -126,8 +128,10 @@ def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffem
     save_encodings(face_data)
 
     end_time = time.time()
-
+    ram_after = process.memory_info().rss / (1024**2)
+    elapsed_time = end_time - start_time
+    ram_used = ram_after - ram_before
     logger.warning(
-        f"Nightly face encoding task completed in {end_time - start_time:.2f} seconds, "
+        f"Nightly face encoding task completed in {elapsed_time:.2f} seconds, using approximately {ram_used} MB of RAM "
         f"found {len(duplicates)} duplicates, {images_without_faces_count} images without faces"
     )
