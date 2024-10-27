@@ -1,11 +1,13 @@
+import logging
 import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-import numpy as np
-from django.conf import settings
+
 import cv2
 import face_recognition
-import logging
+import numpy as np
+from constance import config
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,8 @@ def preprocess_image(image_path):
 def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=settings.CAFFEMODEL):
     try:
         net = cv2.dnn.readNetFromCaffe(prototxt, caffemodel)
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
         image = preprocess_image(image_path)
         (h, w) = image.shape[:2]
         blob = cv2.dnn.blobFromImage(cv2.resize(image, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
@@ -40,7 +44,6 @@ def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=s
     except Exception as e:
         logger.error(f"Error processing image {image_path}: {e}")
         return image_path, []
-
 
 
 def encode_faces(image_path, face_regions):
@@ -80,7 +83,8 @@ def process_folder_parallel(folder_path, prototxt, caffemodel):
 
     with Pool(cpu_count()) as pool:
         face_regions_results = pool.starmap(
-            get_face_detections_dnn, [(str(image_path), prototxt, caffemodel) for image_path in image_paths]
+            get_face_detections_dnn,
+            [(str(image_path), prototxt, caffemodel) for image_path in image_paths],
         )
         for image_path, regions in face_regions_results:
             if regions:
@@ -89,7 +93,7 @@ def process_folder_parallel(folder_path, prototxt, caffemodel):
             else:
                 images_without_faces_count += 1
 
-    duplicates = find_duplicates(face_data, threshold=0.3)
+    duplicates = find_duplicates(face_data, config.TOLERANCE)
 
     end_time = time.time()
     return len(duplicates), images_without_faces_count, end_time - start_time

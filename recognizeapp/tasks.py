@@ -1,20 +1,24 @@
-import time
-import psutil
-import numpy as np
-from celery import shared_task
-from .models import Individual
-import face_recognition
-from django.core.files.storage import default_storage
-import pickle
-from django.core.files.base import ContentFile
-from pathlib import Path
 import logging
-from multiprocessing import Pool, cpu_count
-from .utils import get_face_detections_dnn, find_duplicates, encode_faces
-from constance import config
+import pickle
+import time
+from pathlib import Path
+
 import cv2
+import face_recognition
+import numpy as np
+import psutil
+from celery import shared_task
+from constance import config
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+
+from .models import Individual
+from .utils import encode_faces, find_duplicates, get_face_detections_dnn
 
 logger = logging.getLogger(__name__)
+prototxt = "static/deploy.prototxt"
+caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
+
 
 
 def preprocess_image_for_encoding(image_path):
@@ -65,7 +69,7 @@ def generate_face_encoding(individual_id, tolerance=config.TOLERANCE):
         if individual.photo:
             processed_image = preprocess_image_for_encoding(individual.photo.path)
             rgb_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
-            current_encoding = face_recognition.face_encodings(rgb_image, model="cnn")[0]
+            current_encoding = face_recognition.face_encodings(rgb_image, model="large")[0]
             all_encodings = load_encodings()
             all_encodings[individual.id] = current_encoding
             save_encodings(all_encodings)
@@ -97,10 +101,6 @@ def generate_face_encoding(individual_id, tolerance=config.TOLERANCE):
     logger.warning(
         f"generate_face_encoding task completed in {elapsed_time} seconds, using approximately {ram_used} MB of RAM"
     )
-
-
-prototxt = "static/deploy.prototxt"
-caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
 
 
 @shared_task

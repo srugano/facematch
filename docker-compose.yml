@@ -3,6 +3,12 @@ services:
   web:
     build: .
     command: ./start.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            capabilities: [gpu]
     volumes:
       - .:/usr/src/app
       - /home/stock/Documents/UNICEF/test 100/:/usr/src/app/media
