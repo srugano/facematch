@@ -8,6 +8,7 @@ import face_recognition
 import numpy as np
 import psutil
 from celery import shared_task
+from constance import config
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
@@ -15,9 +16,9 @@ from .models import Individual
 from .utils import encode_faces, find_duplicates, get_face_detections_dnn
 
 logger = logging.getLogger(__name__)
-net = cv2.dnn.readNetFromCaffe("static/deploy.prototxt", "static/res10_300x300_ssd_iter_140000.caffemodel")
-net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+prototxt = "static/deploy.prototxt"
+caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
+
 
 
 def preprocess_image_for_encoding(image_path):
@@ -68,7 +69,7 @@ def generate_face_encoding(individual_id, tolerance=config.TOLERANCE):
         if individual.photo:
             processed_image = preprocess_image_for_encoding(individual.photo.path)
             rgb_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
-            current_encoding = face_recognition.face_encodings(rgb_image, model="cnn")[0]
+            current_encoding = face_recognition.face_encodings(rgb_image, model="large")[0]
             all_encodings = load_encodings()
             all_encodings[individual.id] = current_encoding
             save_encodings(all_encodings)
@@ -115,7 +116,7 @@ def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffem
     all_image_paths = list(Path(folder_path).glob("*.jpg")) + list(Path(folder_path).glob("*.png"))
     for image_path in all_image_paths:
         image_path_str = str(image_path)
-        image_path, regions = get_face_detections_dnn(image_path_str, net)
+        image_path, regions = get_face_detections_dnn(image_path_str, prototxt, caffemodel)
 
         if regions:
             _, encodings = encode_faces(image_path_str, regions)
