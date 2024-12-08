@@ -38,7 +38,7 @@ This Django project implements a face recognition system using the `face_recogni
    ```
 3. Install packages
    ```bash
-   pip install requirements.txt
+   pip install -r requirements.txt
    ```
 
 ### Configuration
@@ -52,7 +52,12 @@ This Django project implements a face recognition system using the `face_recogni
   ```python 
     python manage.py migrate
   ```
-
+4. You will have to create a superuser:
+  ```python
+     python manage.py createsuperuser
+     python manage.py runserver
+  ```
+Log into the admin server http://llovalhost:8000/admin and Update the **Config** variable for the Tolerance to **0.4**. Also, the [DNN caffemodel](https://github.com/sr6033/face-detection-with-OpenCV-and-DNN/blob/master/res10_300x300_ssd_iter_140000.caffemodel) is the default but there are more extensively trained ArcNet/FaceNet models that have been trained on diverse datasets, generally better at detecting faces across different demographics, handling occlusions (e.g., masks, sunglasses, head coverings). So you should have [RetinaFace model](https://github.com/deepinsight/insightface/blob/master/python-package/README.md) ready to be instaled with the requirements. 
 ### Running the Project
 
 1. Start the Django development server:
@@ -70,8 +75,34 @@ This Django project implements a face recognition system using the `face_recogni
   ```
 4. From the admin site, run the task `nightly_face_encoding_task` from celery beat. It will produce the dataset necessair for the comparaison.
 ```python
-In [2]: folder_path="/home/stock/dEV/face_rec/individual_photos/"
+folder_path="/home/stock/dEV/face_rec/individual_photos/"
 
-In [3]: nightly_face_encoding_task.delay(folder_path=folder_path)
+nightly_face_encoding_task.delay(folder_path=folder_path)
 ``` 
+You should get logs resembling this:
+
+```bash
+[2024-12-08 20:35:03,258: INFO/MainProcess] Task recognizeapp.tasks.nightly_face_encoding_task[cedf15c7-72a1-46b2-85da-bbafa8ac2c16] received
+[2024-12-08 20:35:03,260: WARNING/ForkPoolWorker-1] Starting nightly face encoding task
+[2024-12-08 20:46:59,458: INFO/ForkPoolWorker-1] Duplicate found between 1672584790683.jpg and 1672585996282.jpg with similarity: 0.5490464568138123
+[2024-12-08 20:46:59,471: INFO/ForkPoolWorker-1] Duplicate found between 1262424872919.jpg and 1262304901305.jpg with similarity: 0.5264420509338379
+[2024-12-08 20:46:59,472: INFO/ForkPoolWorker-1] Duplicate found between 1262355278215.jpg and 1262338824104.jpg with similarity: 0.5062891244888306
+[2024-12-08 20:46:59,482: INFO/ForkPoolWorker-1] Duplicate found between 1672587204763.jpg and 1672587019995.jpg with similarity: 0.9347215294837952
+[2024-12-08 20:46:59,488: INFO/ForkPoolWorker-1] Duplicate found between 1672591316297.jpg and 1262308937778.jpg with similarity: 0.5152726173400879
+[2024-12-08 20:46:59,504: INFO/ForkPoolWorker-1] Duplicate found between 169900729996T.jpg and 1699007299965.jpg with similarity: 1.0
+[2024-12-08 20:46:59,513: INFO/ForkPoolWorker-1] Duplicate found between 1262307336878.jpg and 1262430908975.jpg with similarity: 0.508508026599884
+[2024-12-08 20:46:59,526: INFO/ForkPoolWorker-1] Duplicate found between 1262308475322.jpg and 1262312212683.jpg with similarity: 0.5270479917526245
+[2024-12-08 20:46:59,546: INFO/ForkPoolWorker-1] Duplicate found between 1262304901305.jpg and 1262310228896.jpg with similarity: 0.5257623791694641
+[2024-12-08 20:46:59,556: INFO/ForkPoolWorker-1] Duplicate found between 1672585996282.jpg and 1672585279204.jpg with similarity: 0.5041026473045349
+[2024-12-08 20:46:59,562: INFO/ForkPoolWorker-1] Duplicate found between 1262307542265.jpg and 1262304151314.jpg with similarity: 0.5015009045600891
+[2024-12-08 20:46:59,567: INFO/ForkPoolWorker-1] Duplicate found between 1262307729662.jpg and 1262355519680.jpg with similarity: 0.5033266544342041
+[2024-12-08 20:46:59,570: INFO/ForkPoolWorker-1] Duplicate found between 1514769828219.jpg and 1514769963968.jpg with similarity: 0.8707915544509888
+[2024-12-08 20:46:59,571: INFO/ForkPoolWorker-1] Duplicate found between 1262308937778.jpg and 1262305535045.jpg with similarity: 0.5417503118515015
+[2024-12-08 20:46:59,571: INFO/ForkPoolWorker-1] Duplicate found between 1262308937778.jpg and 1514767788895.jpg with similarity: 0.5110607743263245
+[2024-12-08 20:46:59,572: INFO/ForkPoolWorker-1] Duplicate found between 1262308937778.jpg and 1262355519680.jpg with similarity: 0.5006821751594543
+[2024-12-08 20:46:59,594: INFO/ForkPoolWorker-1] Duplicate found between 1672587876893.jpg and 1672589333736.jpg with similarity: 0.5233407616615295
+[2024-12-08 20:46:59,608: INFO/ForkPoolWorker-1] Duplicate found between 1514767788895.jpg and 1514767969951.jpg with similarity: 0.9579339027404785
+[2024-12-08 20:46:59,612: INFO/ForkPoolWorker-1] Nightly face encoding task completed in 716.35 seconds, using approximately 237.44921875 MB of RAM found 18 duplicates, 6 images without faces
+[2024-12-08 20:46:59,615: INFO/ForkPoolWorker-1] Task recognizeapp.tasks.nightly_face_encoding_task[cedf15c7-72a1-46b2-85da-bbafa8ac2c16] succeeded in 716.3553295159945s: None
+```
 5. Add individuals from the admin website. As you add individuals, the system will find duplicates gradually in the background and update the new individual with the IDs of the duplicates.

@@ -1,7 +1,9 @@
 import logging
 import pickle
 import time
+from multiprocessing import Pool, cpu_count
 from pathlib import Path
+from threading import Lock
 
 import cv2
 import face_recognition
@@ -11,14 +13,12 @@ from celery import shared_task
 from constance import config
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from face_recognition import compare_faces, face_encodings
 
 from .models import Individual
-from .utils import encode_faces, find_duplicates, get_face_detections_dnn
+from .utils import encode_faces, find_duplicates, get_face_detections
 
 logger = logging.getLogger(__name__)
-prototxt = "static/deploy.prototxt"
-caffemodel = "static/res10_300x300_ssd_iter_140000.caffemodel"
-
 
 
 def preprocess_image_for_encoding(image_path):
@@ -57,58 +57,65 @@ def save_encodings(encodings):
     default_storage.save(file_name, file_content)
 
 
+encodings_lock = Lock()
+
+
 @shared_task
 def generate_face_encoding(individual_id, tolerance=config.TOLERANCE):
     start_time = time.time()
     process = psutil.Process()
     ram_before = process.memory_info().rss / (1024**2)
-    logger.warning("Running face recognition for this individual")
+    logger.info("Starting face recognition for individual")
 
     try:
         individual = Individual.objects.get(id=individual_id)
-        if individual.photo:
-            processed_image = preprocess_image_for_encoding(individual.photo.path)
-            rgb_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
-            current_encoding = face_recognition.face_encodings(rgb_image, model="large")[0]
+        if not individual.photo or not default_storage.exists(individual.photo.path):
+            logger.error(f"Photo for individual ID {individual_id} is missing or invalid.")
+            return
+        image_path = individual.photo.path
+        image_path, regions = get_face_detections(image_path)
+
+        if not regions:
+            logger.error(f"No face detected in the image for individual ID {individual_id}.")
+            return
+        image = cv2.imread(image_path)
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        encodings = face_recognition.face_encodings(rgb_image, known_face_locations=regions)
+
+        if not encodings:
+            logger.error(f"No encodings generated for the image of individual ID {individual_id}.")
+            return
+
+        current_encoding = encodings[0]
+        with encodings_lock:
             all_encodings = load_encodings()
             all_encodings[individual.id] = current_encoding
             save_encodings(all_encodings)
-            matches = []
-
-            for other_id, other_encoding in all_encodings.items():
-                if other_id != individual.id:
-                    if len(other_encoding) == len(current_encoding):
-                        results = face_recognition.compare_faces(
-                            [np.array(other_encoding)], current_encoding, tolerance
-                        )
-                        if np.any(results):
-                            matches.append(str(other_id))
-            if matches:
-                individual.duplicate = ", ".join(matches)
-                individual.save()
+        matches = []
+        all_ids, all_encodings = zip(*all_encodings.items())
+        all_encodings_array = np.array(all_encodings)
+        results = face_recognition.compare_faces(all_encodings_array, current_encoding, tolerance)
+        matches = [str(all_ids[idx]) for idx, match in enumerate(results) if match and all_ids[idx] != individual.id]
+        if matches:
+            individual.duplicate = ", ".join(matches)
+            individual.save()
 
     except Individual.DoesNotExist:
         logger.error(f"Individual with ID {individual_id} does not exist.")
-    except IndexError:
-        logger.error(f"No face found in the image for individual ID {individual_id}.")
-    except ValueError as e:
-        logger.error(f"Error during face encoding comparison: {e}")
-
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
     ram_after = process.memory_info().rss / (1024**2)
     elapsed_time = time.time() - start_time
     ram_used = ram_after - ram_before
 
-    logger.warning(
-        f"generate_face_encoding task completed in {elapsed_time} seconds, using approximately {ram_used} MB of RAM"
-    )
+    logger.info(f"generate_face_encoding task completed in {elapsed_time:.2f} seconds, using {ram_used:.2f} MB of RAM")
 
 
 @shared_task
-def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffemodel, threshold=config.TOLERANCE):
+def nightly_face_encoding_task(folder_path, threshold=config.TOLERANCE):
     start_time = time.time()
     process = psutil.Process()
     ram_before = process.memory_info().rss / (1024**2)
-    start_time = time.time()
     logger.warning("Starting nightly face encoding task")
     face_data = {}
     images_without_faces_count = 0
@@ -116,7 +123,7 @@ def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffem
     all_image_paths = list(Path(folder_path).glob("*.jpg")) + list(Path(folder_path).glob("*.png"))
     for image_path in all_image_paths:
         image_path_str = str(image_path)
-        image_path, regions = get_face_detections_dnn(image_path_str, prototxt, caffemodel)
+        image_path, regions = get_face_detections(image_path_str)
 
         if regions:
             _, encodings = encode_faces(image_path_str, regions)
@@ -131,7 +138,7 @@ def nightly_face_encoding_task(folder_path, prototxt=prototxt, caffemodel=caffem
     ram_after = process.memory_info().rss / (1024**2)
     elapsed_time = end_time - start_time
     ram_used = ram_after - ram_before
-    logger.warning(
+    logger.info(
         f"Nightly face encoding task completed in {elapsed_time:.2f} seconds, using approximately {ram_used} MB of RAM "
         f"found {len(duplicates)} duplicates, {images_without_faces_count} images without faces"
     )
