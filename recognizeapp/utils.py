@@ -16,6 +16,7 @@ from facenet_pytorch import MTCNN
 from insightface.app import FaceAnalysis
 from pathlib import Path
 
+
 def cosine_similarity(embedding1, embedding2):
     return np.dot(embedding1, embedding2) / (norm(embedding1) * norm(embedding2))
 
@@ -154,14 +155,18 @@ def find_duplicates(face_encodings, threshold=0.2, metric="cosine"):
                     if metric == "cosine":
                         similarity = cosine_similarity(encoding1, encoding2)
                         if similarity >= 1 - threshold:  # Adjust threshold for cosine
-                            logger.info(f"Duplicate found between {Path(path1).name} and {Path(path2).name} with similarity: {similarity}")
+                            logger.info(
+                                f"Duplicate found between {Path(path1).name} and {Path(path2).name} with similarity: {similarity}"
+                            )
                             duplicates.append((path1, path2))
                             break
                     elif metric == "euclidean":
                         distance = euclidean_distance(encoding1, encoding2)
                         print(f"Cosine distance: {distance}")
                         if distance <= threshold:
-                            logger.info(f"Duplicate found between {Path(path1).name} and {Path(path2).name} with distance: {distance}")
+                            logger.info(
+                                f"Duplicate found between {Path(path1).name} and {Path(path2).name} with distance: {distance}"
+                            )
                             duplicates.append((path1, path2))
                             break
                     else:
@@ -177,8 +182,7 @@ def process_folder_parallel(folder_path, prototxt, caffemodel):
     images_without_faces_count = 0
 
     with Pool(cpu_count()) as pool:
-        face_regions_results = pool.starmap(
-        )
+        face_regions_results = pool.starmap()
         for image_path, regions in face_regions_results:
             if regions:
                 _, encodings = encode_faces(image_path, regions)
