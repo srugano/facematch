@@ -10,7 +10,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/3.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+import environ
+
+env = environ.Env(
+    # set casting, default value
+    DEBUG=(bool, False)
+)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,10 +28,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-*5$$0b70w0aj6fkk(m^%zl^#8&mhq07+5b^8#b_r6m37+p*wlk"
+SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
+DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = []
 
@@ -156,9 +165,11 @@ PROTOTXT = "static/deploy.prototxt"
 CAFFEMODEL = "static/res10_300x300_ssd_iter_140000.caffemodel"
 CONSTANCE_BACKEND = "constance.backends.redisd.RedisBackend"
 CONSTANCE_CONFIG = {
+    "FACE_MODEL": ("dnn", "Face detection model to use: dnn, retinaface"),
     "TOLERANCE": (
         0.6,
         "Default distance between faces for duplicates. The lower the value, the more strict the comparison.",
         float,
-    )
+    ),
 }
+ML_MODELS = env("INSIGHTFACE_HOME", default=STATIC_ROOT)

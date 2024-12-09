@@ -50,3 +50,8 @@ tzdata==2023.3
 vine==5.1.0
 wcwidth==0.2.12
 django-constance[redis]
+insightface 
+onnxruntime
+facenet-pytorch
+tensorflow
+django-environ
