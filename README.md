@@ -55,29 +55,30 @@ This Django project implements a face recognition system using the `face_recogni
 4. You will have to create a superuser:
   ```python
      python manage.py createsuperuser
-     python manage.py runserver
   ```
-Log into the admin server http://llovalhost:8000/admin and Update the **Config** variable for the Tolerance to **0.4**. Also, the [DNN caffemodel](https://github.com/sr6033/face-detection-with-OpenCV-and-DNN/blob/master/res10_300x300_ssd_iter_140000.caffemodel) is the default but there are more extensively trained ArcNet/FaceNet models that have been trained on diverse datasets, generally better at detecting faces across different demographics, handling occlusions (e.g., masks, sunglasses, head coverings). So you should have [RetinaFace model](https://github.com/deepinsight/insightface/blob/master/python-package/README.md) ready to be instaled with the requirements. 
 ### Running the Project
 
 1. Start the Django development server:
   ```python 
   python manage.py runserver
   ```
-2. In a separate terminal, start the Celery worker:
+
+2. Log into the admin server http://llovalhost:8000/admin and Update the **Config** variable for the Tolerance to **0.4**. Also, the [DNN caffemodel](https://github.com/sr6033/face-detection-with-OpenCV-and-DNN/blob/master/res10_300x300_ssd_iter_140000.caffemodel) is the default but there are more extensively trained ArcNet/FaceNet models that have been trained on diverse datasets, generally better at detecting faces across different demographics, handling occlusions (e.g., masks, sunglasses, head coverings). So you should have [RetinaFace model](https://github.com/deepinsight/insightface/blob/master/python-package/README.md) ready to be instaled with the requirements. Update the DNN model to use the **retinaface**
+
+
+3. In a separate terminal, start the Celery worker:
   ```bash
   celery -A face_rec worker -l info
   ```
-3. Running Celery Beat
+4. Running Celery Beat
   When you start your Celery worker, also start Celery Beat to ensure the scheduled tasks are executed:
   ```bash
   celery -A face_rec beat -l info
   ```
-4. From the admin site, run the task `nightly_face_encoding_task` from celery beat. It will produce the dataset necessair for the comparaison.
+5. From the admin site, run the task `nightly_face_encoding_task` from celery beat. It will produce the dataset necessair for the comparaison.
 ```python
-folder_path="/home/stock/dEV/face_rec/individual_photos/"
-
-nightly_face_encoding_task.delay(folder_path=folder_path)
+$folder_path="/home/stock/dEV/face_rec/individual_photos/"
+$nightly_face_encoding_task.delay(folder_path=folder_path)
 ``` 
 You should get logs resembling this:
 
