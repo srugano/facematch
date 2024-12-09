@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import face_recognition
 import numpy as np
 from django.conf import settings
 from numpy.linalg import norm
+from sklearn.metrics.pairwise import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +78,7 @@ def generate_html_report(duplicates, output_file, elapsed_time, ram_used, images
     """
 
     rows = ""
-    
+
     for path1, path2, distance in duplicates:
         image1 = f'<img src="{path1}" alt="Image 1">' if os.path.exists(path1) else "Image unavailable"
         name1 = Path(path1).name if os.path.exists(path1) else "N/A"
@@ -207,38 +209,45 @@ def encode_faces(image_path, face_regions):
     return image_path, encodings
 
 
-def find_duplicates(face_encodings, threshold=0.2, metric="cosine"):
+def find_duplicates(face_encodings, threshold=0.2, metric="cosine", existing: dict[str, list] = None, out=sys.stdout):
     """
     Find duplicate faces based on a similarity metric.
 
     :param face_encodings: Dictionary of {path: [embeddings]}.
     :param threshold: Threshold for duplicate detection.
     :param metric: Similarity metric ("cosine" or "euclidean").
-    :return: List of duplicate pairs with distances [(path1, path2, distance)].
+    :return: List of duplicate pairs.
     """
     duplicates = []
+    findings = defaultdict(list)
+    findings.update(existing or {})
     encoding_list = list(face_encodings.items())
-
+    out.write(f"{len(findings)} known duplicates already found\n")
     for i in range(len(encoding_list)):
         path1, encodings1 = encoding_list[i]
         for j in range(i + 1, len(encoding_list)):
             path2, encodings2 = encoding_list[j]
+            if path2 in findings.get(path1, []):
+                continue
             for encoding1 in encodings1:
                 for encoding2 in encodings2:
                     if metric == "cosine":
                         similarity = cosine_similarity(encoding1, encoding2)
                         if similarity >= 1 - threshold:
                             duplicates.append((path1, path2, similarity))
+                            findings[path1].append((path2, similarity.tolist()))
+                            findings[path2].append((path1, similarity.tolist()))
                             break
                     elif metric == "euclidean":
                         distances = face_recognition.face_distance(encodings2, encoding1)
                         valid_indices = np.where(distances <= threshold)[0]
                         for idx in valid_indices:
                             duplicates.append((path1, path2, distances[idx]))
+                            findings[path1].append((path2, distances))
+                            findings[path2].append((path1, distances))
                     else:
                         raise ValueError(f"Unsupported metric: {metric}")
-    return duplicates
-
+    return findings
 
 
 def process_folder_parallel(folder_path, prototxt, caffemodel):
