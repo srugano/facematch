@@ -147,3 +147,4 @@ apiconfig.ini
 *.webp
 staticfiles/
 *.pkl
+individual_photos/

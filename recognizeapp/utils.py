@@ -12,7 +12,6 @@ from numpy.linalg import norm
 logger = logging.getLogger(__name__)
 
 from constance import config
-from facenet_pytorch import MTCNN
 from insightface.app import FaceAnalysis
 from pathlib import Path
 
