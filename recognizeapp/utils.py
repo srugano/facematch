@@ -18,18 +18,44 @@ from constance import config
 from insightface.app import FaceAnalysis
 
 
-def generate_html_report(duplicates, output_file, elapsed_time, ram_used, images_without_faces_count):
+def generate_html_report(
+    duplicates, 
+    output_file, 
+    elapsed_time, 
+    ram_used, 
+    images_without_faces_count, 
+    model_name="RetinaFace",
+    total_images=0, 
+    tolerance=0.5,
+    no_faces_files=None
+):
     """
     Generate an HTML report of duplicate image comparisons.
 
     :param duplicates: List of tuples [(path1, path2, distance)].
     :param output_file: Path to the HTML file to save.
+    :param elapsed_time: Total time taken for the task.
+    :param ram_used: Total RAM used by the task.
+    :param images_without_faces_count: Number of images with no faces detected.
+    :param model_name: Name of the face detection/recognition model used.
+    :param tolerance: Tolerance threshold for duplicate detection.
+    :param no_faces_files: List of file names where no faces were detected.
     """
+    # Sort duplicates by distance
+    sorted_duplicates = sorted(duplicates, key=lambda x: x[2], reverse=True)
+    duplicates_counts = len(duplicates)
+    noface_count = len(no_faces_files)
+    # Default to an empty list if no_faces_files is None
+    if no_faces_files is None:
+        no_faces_files = []
+
+    # HTML template
     html_template = """
     <!DOCTYPE html>
     <html>
     <head>
         <title>Duplicate Images Report</title>
+        <p>Out of these {total_images} images, we found {duplicates_counts} duplicates and {noface_count} images without faces.</p>
         <style>
             table {{
                 width: 100%;
@@ -54,8 +80,9 @@ def generate_html_report(duplicates, output_file, elapsed_time, ram_used, images
         <table>
             <thead>
                 <tr>
-                    <th>First Image Name</th>
+                    <th>#</th>
                     <th>First Image</th>
+                    <th>First Image Name</th>
                     <th>Second Image</th>
                     <th>Second Image Name</th>
                     <th>Distance</th>
@@ -70,20 +97,27 @@ def generate_html_report(duplicates, output_file, elapsed_time, ram_used, images
             <li>Total time taken: {elapsed_time:.2f} seconds</li>
             <li>Total RAM used: {ram_used:.2f} MB</li>
             <li>Images without faces detected: {images_without_faces_count}</li>
+            <li>Model: {model_name}</li>
+            <li>Tolerance: {tolerance} (over {tolerance} means almost similar)</li>
+        </ul>
+        <h3>Files Without Faces Detected</h3>
+        <ul>
+            {no_faces_list}
         </ul>
     </body>
     </html>
     """
 
+    # Generate rows for the duplicates table
     rows = ""
-    
-    for path1, path2, distance in duplicates:
+    for idx, (path1, path2, distance) in enumerate(sorted_duplicates, start=1):
         image1 = f'<img src="{path1}" alt="Image 1">' if os.path.exists(path1) else "Image unavailable"
         name1 = Path(path1).name if os.path.exists(path1) else "N/A"
         image2 = f'<img src="{path2}" alt="Image 2">' if os.path.exists(path2) else "Image unavailable"
         name2 = Path(path2).name if os.path.exists(path2) else "N/A"
         rows += f"""
         <tr>
+            <td>{idx}</td>
             <td>{image1}</td>
             <td>{name1}</td>
             <td>{image2}</td>
@@ -91,13 +125,32 @@ def generate_html_report(duplicates, output_file, elapsed_time, ram_used, images
             <td>{distance:.8f}</td>
         </tr>
         """
-    html_content = html_template.format(rows=rows,
+
+    # Generate list of files without detected faces
+    no_faces_list = "".join(
+        f"<li><a href='{file}' target='_blank'>{Path(file).name}</a></li>" for file in no_faces_files
+    )
+
+    # Generate final HTML content
+    html_content = html_template.format(
+        rows=rows,
         elapsed_time=elapsed_time,
         ram_used=ram_used,
-        images_without_faces_count=images_without_faces_count)
-    with open(output_file, "w") as file:
+        images_without_faces_count=images_without_faces_count,
+        model_name=model_name,
+        tolerance=tolerance,
+        total_images=total_images,
+        no_faces_list=no_faces_list,
+        duplicates_counts=duplicates_counts,
+        noface_count=noface_count
+    )
+
+    # Write to the HTML file
+    with open(output_file, "w", encoding="utf_8") as file:
         file.write(html_content)
+
     print(f"Report generated: {output_file}")
+
 
 
 def cosine_similarity(embedding1, embedding2):

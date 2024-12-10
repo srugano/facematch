@@ -113,10 +113,12 @@ def nightly_face_encoding_task(folder_path, threshold=config.TOLERANCE):
     process = psutil.Process()
     ram_before = process.memory_info().rss / (1024**2)
     logger.warning("Starting nightly face encoding task")
+
     face_data = {}
-    images_without_faces_count = 0
+    no_faces_files = []
 
     all_image_paths = list(Path(folder_path).glob("*.jpg")) + list(Path(folder_path).glob("*.png"))
+    total_images = len(all_image_paths)
     for image_path in all_image_paths:
         image_path_str = str(image_path)
         image_path, regions = get_face_detections(image_path_str)
@@ -126,7 +128,8 @@ def nightly_face_encoding_task(folder_path, threshold=config.TOLERANCE):
             if encodings:
                 face_data[image_path] = encodings
         else:
-            images_without_faces_count += 1
+            no_faces_files.append(image_path_str)
+
     model_choice = config.FACE_MODEL.lower()
     metric = "euclidean" if model_choice == "dnn" else "cosine"
     duplicates = find_duplicates(face_data, threshold, metric=metric)
@@ -136,17 +139,23 @@ def nightly_face_encoding_task(folder_path, threshold=config.TOLERANCE):
     ram_after = process.memory_info().rss / (1024**2)
     elapsed_time = end_time - start_time
     ram_used = ram_after - ram_before
+
     output_file = os.path.join(folder_path, model_choice + "_duplicates_report.html")
     generate_html_report(
-        duplicates,
-        output_file,
+        duplicates=duplicates,
+        output_file=output_file,
         elapsed_time=elapsed_time,
         ram_used=ram_used,
-        images_without_faces_count=images_without_faces_count
+        model_name=model_choice,
+        images_without_faces_count=len(no_faces_files),
+        tolerance=threshold,
+        total_images=total_images,
+        no_faces_files=no_faces_files,
     )
 
     logger.info(
         f"Nightly face encoding task completed in {elapsed_time:.2f} seconds, using approximately {ram_used} MB of RAM. "
-        f"Found {len(duplicates)} duplicates and {images_without_faces_count} images without faces. "
+        f"Found {len(duplicates)} duplicates and {len(no_faces_files)} images without faces. "
         f"Report generated: {output_file}"
     )
+
