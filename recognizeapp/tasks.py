@@ -132,7 +132,7 @@ def nightly_face_encoding_task(folder_path, threshold=config.TOLERANCE):
 
     model_choice = config.FACE_MODEL.lower()
     metric = "euclidean" if model_choice == "dnn" else "cosine"
-    duplicates = find_duplicates(face_data, threshold, metric=metric)
+    duplicates = find_duplicates(face_data, threshold, metric)
     save_encodings(face_data)
 
     end_time = time.time()

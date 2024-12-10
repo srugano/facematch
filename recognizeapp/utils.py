@@ -41,15 +41,11 @@ def generate_html_report(
     :param tolerance: Tolerance threshold for duplicate detection.
     :param no_faces_files: List of file names where no faces were detected.
     """
-    # Sort duplicates by distance
-    sorted_duplicates = sorted(duplicates, key=lambda x: x[2], reverse=True)
     duplicates_counts = len(duplicates)
     noface_count = len(no_faces_files)
-    # Default to an empty list if no_faces_files is None
     if no_faces_files is None:
         no_faces_files = []
 
-    # HTML template
     html_template = """
     <!DOCTYPE html>
     <html>
@@ -108,9 +104,8 @@ def generate_html_report(
     </html>
     """
 
-    # Generate rows for the duplicates table
     rows = ""
-    for idx, (path1, path2, distance) in enumerate(sorted_duplicates, start=1):
+    for idx, (path1, path2, distance) in enumerate(duplicates, start=1):
         image1 = f'<img src="{path1}" alt="Image 1">' if os.path.exists(path1) else "Image unavailable"
         name1 = Path(path1).name if os.path.exists(path1) else "N/A"
         image2 = f'<img src="{path2}" alt="Image 2">' if os.path.exists(path2) else "Image unavailable"
@@ -126,12 +121,10 @@ def generate_html_report(
         </tr>
         """
 
-    # Generate list of files without detected faces
     no_faces_list = "".join(
         f"<li><a href='{file}' target='_blank'>{Path(file).name}</a></li>" for file in no_faces_files
     )
 
-    # Generate final HTML content
     html_content = html_template.format(
         rows=rows,
         elapsed_time=elapsed_time,
@@ -145,7 +138,6 @@ def generate_html_report(
         noface_count=noface_count
     )
 
-    # Write to the HTML file
     with open(output_file, "w", encoding="utf_8") as file:
         file.write(html_content)
 
@@ -271,12 +263,16 @@ def find_duplicates(face_encodings, threshold=0.2, metric="cosine"):
     """
     duplicates = []
     encoding_list = list(face_encodings.items())
+    encoding_cache = {}
 
     for i in range(len(encoding_list)):
         path1, encodings1 = encoding_list[i]
         for j in range(i + 1, len(encoding_list)):
             path2, encodings2 = encoding_list[j]
             for encoding1 in encodings1:
+                # Cache comparisons for optimization
+                if (path1, path2) not in encoding_cache:
+                    encoding_cache[(path1, path2)] = []
                 for encoding2 in encodings2:
                     if metric == "cosine":
                         similarity = cosine_similarity(encoding1, encoding2)
@@ -284,13 +280,18 @@ def find_duplicates(face_encodings, threshold=0.2, metric="cosine"):
                             duplicates.append((path1, path2, similarity))
                             break
                     elif metric == "euclidean":
-                        distances = face_recognition.face_distance(encodings2, encoding1)
-                        valid_indices = np.where(distances <= threshold)[0]
-                        for idx in valid_indices:
-                            duplicates.append((path1, path2, distances[idx]))
+                        normalized_embedding1 = encoding1 / np.linalg.norm(encoding1)
+                        normalized_embedding2 = encoding2 / np.linalg.norm(encoding2)
+                        distance = np.dot(normalized_embedding1, normalized_embedding2)
+                        if distance >= 1 - threshold:
+                            duplicates.append((path1, path2, distance))
+                            break
                     else:
                         raise ValueError(f"Unsupported metric: {metric}")
-    return duplicates
+    
+    unique_duplicates = list(set((min(a, b), max(a, b), c) for a, b, c in duplicates))
+    return sorted(unique_duplicates, key=lambda x: x[2], reverse=True)
+
 
 
 
