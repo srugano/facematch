@@ -4,7 +4,7 @@ import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from threading import Lock
-
+import os
 import cv2
 import face_recognition
 import numpy as np
@@ -16,7 +16,7 @@ from django.core.files.storage import default_storage
 from face_recognition import compare_faces, face_encodings
 
 from .models import Individual
-from .utils import encode_faces, find_duplicates, get_face_detections
+from .utils import encode_faces, find_duplicates, get_face_detections, generate_html_report
 
 logger = logging.getLogger(__name__)
 
@@ -65,25 +65,21 @@ def generate_face_encoding(individual_id, tolerance=config.TOLERANCE):
     start_time = time.time()
     process = psutil.Process()
     ram_before = process.memory_info().rss / (1024**2)
-    logger.info("Starting face recognition for individual")
 
     try:
         individual = Individual.objects.get(id=individual_id)
         if not individual.photo or not default_storage.exists(individual.photo.path):
-            logger.error(f"Photo for individual ID {individual_id} is missing or invalid.")
             return
         image_path = individual.photo.path
         image_path, regions = get_face_detections(image_path)
 
         if not regions:
-            logger.error(f"No face detected in the image for individual ID {individual_id}.")
             return
         image = cv2.imread(image_path)
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         encodings = face_recognition.face_encodings(rgb_image, known_face_locations=regions)
 
         if not encodings:
-            logger.error(f"No encodings generated for the image of individual ID {individual_id}.")
             return
 
         current_encoding = encodings[0]
@@ -131,14 +127,26 @@ def nightly_face_encoding_task(folder_path, threshold=config.TOLERANCE):
                 face_data[image_path] = encodings
         else:
             images_without_faces_count += 1
-    duplicates = find_duplicates(face_data, threshold)
+    model_choice = config.FACE_MODEL.lower()
+    metric = "euclidean" if model_choice == "dnn" else "cosine"
+    duplicates = find_duplicates(face_data, threshold, metric=metric)
     save_encodings(face_data)
 
     end_time = time.time()
     ram_after = process.memory_info().rss / (1024**2)
     elapsed_time = end_time - start_time
     ram_used = ram_after - ram_before
+    output_file = os.path.join(folder_path, model_choice + "_duplicates_report.html")
+    generate_html_report(
+        duplicates,
+        output_file,
+        elapsed_time=elapsed_time,
+        ram_used=ram_used,
+        images_without_faces_count=images_without_faces_count
+    )
+
     logger.info(
-        f"Nightly face encoding task completed in {elapsed_time:.2f} seconds, using approximately {ram_used} MB of RAM "
-        f"found {len(duplicates)} duplicates, {images_without_faces_count} images without faces"
+        f"Nightly face encoding task completed in {elapsed_time:.2f} seconds, using approximately {ram_used} MB of RAM. "
+        f"Found {len(duplicates)} duplicates and {images_without_faces_count} images without faces. "
+        f"Report generated: {output_file}"
     )
