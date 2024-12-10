@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
@@ -11,9 +12,92 @@ from numpy.linalg import norm
 
 logger = logging.getLogger(__name__)
 
+from pathlib import Path
+
 from constance import config
 from insightface.app import FaceAnalysis
-from pathlib import Path
+
+
+def generate_html_report(duplicates, output_file, elapsed_time, ram_used, images_without_faces_count):
+    """
+    Generate an HTML report of duplicate image comparisons.
+
+    :param duplicates: List of tuples [(path1, path2, distance)].
+    :param output_file: Path to the HTML file to save.
+    """
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Duplicate Images Report</title>
+        <style>
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: center;
+            }}
+            th {{
+                background-color: #f4f4f4;
+            }}
+            img {{
+                max-width: 100px;
+                max-height: 100px;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Duplicate Images Report</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>First Image Name</th>
+                    <th>First Image</th>
+                    <th>Second Image</th>
+                    <th>Second Image Name</th>
+                    <th>Distance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows}
+            </tbody>
+        </table>
+        <h3>Task Metrics</h3>
+        <ul>
+            <li>Total time taken: {elapsed_time:.2f} seconds</li>
+            <li>Total RAM used: {ram_used:.2f} MB</li>
+            <li>Images without faces detected: {images_without_faces_count}</li>
+        </ul>
+    </body>
+    </html>
+    """
+
+    rows = ""
+    
+    for path1, path2, distance in duplicates:
+        image1 = f'<img src="{path1}" alt="Image 1">' if os.path.exists(path1) else "Image unavailable"
+        name1 = Path(path1).name if os.path.exists(path1) else "N/A"
+        image2 = f'<img src="{path2}" alt="Image 2">' if os.path.exists(path2) else "Image unavailable"
+        name2 = Path(path2).name if os.path.exists(path2) else "N/A"
+        rows += f"""
+        <tr>
+            <td>{image1}</td>
+            <td>{name1}</td>
+            <td>{image2}</td>
+            <td>{name2}</td>
+            <td>{distance:.8f}</td>
+        </tr>
+        """
+    html_content = html_template.format(rows=rows,
+        elapsed_time=elapsed_time,
+        ram_used=ram_used,
+        images_without_faces_count=images_without_faces_count)
+    with open(output_file, "w") as file:
+        file.write(html_content)
+    print(f"Report generated: {output_file}")
 
 
 def cosine_similarity(embedding1, embedding2):
@@ -43,16 +127,6 @@ def get_face_detections(image_path):
         return get_face_detections_retinaface(image_path)
     else:
         raise ValueError(f"Unsupported face model: {model_choice}")
-
-
-def preprocess_image(image_path):
-    """Load and convert image to RGB if necessary."""
-    image = cv2.imread(image_path)
-    if image is None:
-        raise ValueError(f"Unable to load image at path: {image_path}")
-    if len(image.shape) == 2:
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-    return image
 
 
 def get_face_detections_dnn(image_path, prototxt=settings.PROTOTXT, caffemodel=settings.CAFFEMODEL):
@@ -140,7 +214,7 @@ def find_duplicates(face_encodings, threshold=0.2, metric="cosine"):
     :param face_encodings: Dictionary of {path: [embeddings]}.
     :param threshold: Threshold for duplicate detection.
     :param metric: Similarity metric ("cosine" or "euclidean").
-    :return: List of duplicate pairs.
+    :return: List of duplicate pairs with distances [(path1, path2, distance)].
     """
     duplicates = []
     encoding_list = list(face_encodings.items())
@@ -153,24 +227,18 @@ def find_duplicates(face_encodings, threshold=0.2, metric="cosine"):
                 for encoding2 in encodings2:
                     if metric == "cosine":
                         similarity = cosine_similarity(encoding1, encoding2)
-                        if similarity >= 1 - threshold:  # Adjust threshold for cosine
-                            logger.info(
-                                f"Duplicate found between {Path(path1).name} and {Path(path2).name} with similarity: {similarity}"
-                            )
-                            duplicates.append((path1, path2))
+                        if similarity >= 1 - threshold:
+                            duplicates.append((path1, path2, similarity))
                             break
                     elif metric == "euclidean":
-                        distance = euclidean_distance(encoding1, encoding2)
-                        print(f"Cosine distance: {distance}")
-                        if distance <= threshold:
-                            logger.info(
-                                f"Duplicate found between {Path(path1).name} and {Path(path2).name} with distance: {distance}"
-                            )
-                            duplicates.append((path1, path2))
-                            break
+                        distances = face_recognition.face_distance(encodings2, encoding1)
+                        valid_indices = np.where(distances <= threshold)[0]
+                        for idx in valid_indices:
+                            duplicates.append((path1, path2, distances[idx]))
                     else:
                         raise ValueError(f"Unsupported metric: {metric}")
     return duplicates
+
 
 
 def process_folder_parallel(folder_path, prototxt, caffemodel):
