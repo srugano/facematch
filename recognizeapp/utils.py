@@ -4,6 +4,7 @@ import time
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
+import sys
 
 import cv2
 import face_recognition

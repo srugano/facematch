@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Duplicate Images Report</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+
+        th {
+            background-color: #f4f4f4;
+        }
+
+        img {
+            max-width: 100px;
+            max-height: 100px;
+        }
+
+        .hidden, .hidden2, .hidden3 {
+            display: none;
+        }
+
+        .missing {
+
+        }
+    </style>
+    <script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"
+            integrity="sha256-kmHvs0B+OpCW5GVHUNjv9rOmY0IvSIRcf7zGUDTDQM8=" crossorigin="anonymous"></script>
+</head>
+<body>
+<h1>Duplicate Images Report</h1>
+<div>{{ findings|length }} issues found</div>
+<div id="counter"></div>
+<input type="number" id="threshold" step="0.01" value="0.5">
+Include Missing <input type="checkbox" id="include_missing" checked>
+Include Symmetric <input type="checkbox" id="include_symmetric" checked>
+<table>
+    <thead>
+    <tr>
+        <th>#</th>
+        <th>First Image</th>
+        <th>Second Image</th>
+        <th>Distance</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for entry in findings %}
+        <tr data-pair="{{ entry.3 }}" data-threshold="{{ entry.2 }}"
+            class="{% if entry.1 == "NO FACE DETECTED" %}missing{% endif %}">
+            <td>{{ forloop.counter }}</td>
+            <td><img src="{{ entry.0 }}">
+                <div class="small">{{ entry.0 }}</div>
+            </td>
+            <td>
+                {% if entry.1 != "NO FACE DETECTED" %}
+                    <img src="{{ entry.1 }}">
+                {% endif %}
+                <div class="small">{{ entry.1 }}</div>
+            </td>
+            <td>{{ entry.2 }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{#<h3>Task Metrics</h3>#}
+{#<ul>#}
+{#    <li>Total time taken: {elapsed_time:.2f} seconds</li>#}
+{#    <li>Total RAM used: {ram_used:.2f} MB</li>#}
+{#    <li>Images without faces detected: {images_without_faces_count}</li>#}
+{#</ul>#}
+<script>
+    $(function () {
+        var count_rows = function () {
+            $("#counter").text($('table').find('tr').not('.hidden2').not('.hidden').not('.hidden3').length -1 );
+        }
+        filter_table = function (limit) {
+            $("table > tbody > tr").each(function () {
+                var rowt = parseFloat($(this).data("threshold"));
+                if (rowt <= parseFloat(limit)) {
+                    $(this).addClass("hidden3")
+                } else {
+                    $(this).removeClass("hidden3")
+                }
+            })
+            count_rows();
+        }
+
+        $("#threshold").on("change", function () {
+            filter_table($(this).val())
+        })
+        $("#threshold").on("keyup", function () {
+            filter_table($(this).val())
+        })
+        $("#include_missing").on("click", function (value) {
+            if ($("#include_missing").is(":checked")) {
+                $(".missing").removeClass("hidden")
+            } else {
+                $(".missing").addClass("hidden")
+            }
+            count_rows();
+        });
+        $("#include_symmetric").on("click", function (value) {
+            if ($("#include_symmetric").is(":checked")) {
+                $("table > tbody > tr").each(function () {
+                    $(this).removeClass("hidden2");
+                })
+            } else {
+                var processed = [];
+                $("table > tbody > tr").each(function () {
+                    var pair_key = $(this).data("pair");
+                    if (processed.indexOf(pair_key) >= 0) {
+                        $('table>tbody>tr[data-pair="' + pair_key + '"]').not($(this)).addClass("hidden2")
+                    }
+                    processed.push(pair_key)
+                })
+            }
+            count_rows();
+        });
+        filter_table($("#threshold").val())
+        count_rows();
+    });
+</script>
+</body>
+</html>
