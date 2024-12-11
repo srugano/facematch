@@ -149,12 +149,12 @@ def dedupe_images(files: list[str], encodings, threshold, existing_findings):
     return _findings
 
 
-def process_files(files: list[str], working_dir, algo="cosine", engine="dnn", threshold=0.4, num_processes=4,
+def process_files(files: list[str], working_dir, engine="dnn", threshold=0.4, num_processes=4,
                   skip_encoding=False,
                   out=sys.stdout):
     encoding_file = Path(working_dir) / f"_encoding_{engine}.json"
-    existing_findings = Path(working_dir) / f"_findings_{engine}_{algo}.json"
-    results_findings = Path(working_dir) / f"_perfs_{engine}_{algo}.json"
+    existing_findings = Path(working_dir) / f"_findings_{engine}.json"
+    results_findings = Path(working_dir) / f"_perfs_{engine}.json"
     start_time = datetime.now()
     process = psutil.Process()
     ram_before = process.memory_info().rss / (1024 ** 2)
@@ -224,7 +224,6 @@ def process_files(files: list[str], working_dir, algo="cosine", engine="dnn", th
                "Duplicates": len(output),
                "Threshold": threshold,
                "Processes": num_processes,
-               "Algorythm": algo,
                "Engine": engine,
                }
     if not skip_encoding:
