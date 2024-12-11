@@ -1,5 +1,6 @@
 # Django and related libraries
 Django==4.2.1
+django-extensions
 django-celery-beat
 django-storages
 django-constance[redis]
