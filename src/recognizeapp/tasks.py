@@ -25,7 +25,7 @@ def notify_status(counter, filepath, task: Task, size, **kwargs):
     task.update_state(
         state="PROGRESS", meta=json.dumps({"file": filepath, "counter": counter})
     )
-    task.send_event(f"task-progress", current=counter, total=size)
+    task.send_event("task-progress", current=counter, total=size)
 
 
 @app.task(bind=True)
