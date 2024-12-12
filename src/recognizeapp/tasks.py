@@ -158,7 +158,7 @@ def process_dataset(self, config):
     chunks = get_chunks(files)
     size = len(chunks)
     tasks = [
-        encode_chunk.s(chunk, "%s/%s" % (n, size), config, existing_encoded)
+        encode_chunk.s(chunk, f"{n}/{size}", config, existing_encoded)
         for n, chunk in enumerate(chunks)
     ]
 
