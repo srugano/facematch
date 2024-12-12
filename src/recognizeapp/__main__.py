@@ -9,7 +9,7 @@ import click
 from jinja2 import Template
 import tracemalloc
 
-from recognizeapp.utils import Dataset, encode_faces
+from recognizeapp.utils import Dataset, encode_faces, generate_report
 
 NO_FACE_DETECTED = "NO FACE DETECTED"
 
@@ -100,21 +100,10 @@ def cli(path, processes, threshold, reset, queue, **depface_options):
         ds.reset()
     pre_encodings = ds.get_encoding()
     pre_findings = ds.get_findings()
-    # if encoding_file.exists():
-    #     pre_encodings = json.loads(encoding_file.read_text())
-    # else:
-    #     pre_encodings = None
-    # if findings_file.exists():
-    #     pre_findings = json.loads(findings_file.read_text())
-    # else:
-    #     pre_findings = None
 
     if queue:
         from .tasks import process_dataset
-        config = {"threshold": threshold,
-                  "options": depface_options,
-                  "path": path
-                  }
+        config = {"options": {**depface_options, "threshold": threshold}, "path": path}
         res = process_dataset.delay(config)
     else:
         # initialize to evalue perf
@@ -130,4 +119,4 @@ def cli(path, processes, threshold, reset, queue, **depface_options):
         ds.update_encodings(encodings)
         ds.save_run_info(metrics)
 
-        generate_report(Path(path).absolute(), findings, metrics, report_file)
+        generate_report(Path(path).absolute(), findings, metrics)

@@ -59,6 +59,12 @@ class Dataset:
         else:
             return {}
 
+    def get_perf(self):
+        if self.storage(self.runinfo_db_name).exists():
+            return json.loads(self.storage(self.runinfo_db_name).read_text())
+        else:
+            return {}
+
     def get_silenced(self):
         if self.storage(self.silenced_db_name).exists():
             return json.loads(self.storage(self.silenced_db_name).read_text())
@@ -67,7 +73,11 @@ class Dataset:
 
     def get_files(self):
         patterns = ("*.png", "*.jpg", "*.jpeg")
-        files = [str(f.absolute()) for f in self.storage(self.path).iterdir() if any(f.match(p) for p in patterns)]
+        files = [
+            str(f.absolute())
+            for f in self.storage(self.path).iterdir()
+            if any(f.match(p) for p in patterns)
+        ]
         return files
 
     def update_findings(self, findings):
@@ -89,6 +99,7 @@ class Dataset:
 
     def get_dedupe_config(self) -> dict[str, Union[str, int, float, bool]]:
         return {
+            "threshold": self.options["threshold"],
             "model_name": self.options["model_name"],
             "detector_backend": self.options["detector_backend"],
         }
@@ -98,56 +109,63 @@ def chop_microseconds(delta):
     return delta - datetime.timedelta(microseconds=delta.microseconds)
 
 
-def encode_faces(files: list[str], options=None, pre_encodings=None, progress=None) -> dict[str, Union[str, list[float]]]:
+def encode_faces(
+    files: list[str], options=None, pre_encodings=None, progress=None
+) -> dict[str, Union[str, list[float]]]:
     from deepface import DeepFace
+
     if not callable(progress):
-        progress = lambda x: True
+        progress = lambda *a: True
 
     results = {}
     if pre_encodings:
         results.update(pre_encodings)
 
-    for file in files:
-        progress(file)
+    for n, file in enumerate(files):
+        progress(n, file)
         if file in results:
             continue
         try:
             result = DeepFace.represent(file, **(options or {}))
             if len(result) > 1:
                 raise ValueError("More than one face detected")
-            results[file] = result[0]['embedding']
+            results[file] = result[0]["embedding"]
         except TypeError as e:
-            breakpoint()
-        except ValueError as e:
+            results[file] = str(e)
+        except ValueError:
             results[file] = NO_FACE_DETECTED
     return results
 
 
-def dedupe_images(files: list[str], encodings: dict[str, Union[str, list[float]]], options: dict[str, Any] = None,
-                  pre_findings=None, progress=None):
+def dedupe_images(
+    files: list[str],
+    encodings: dict[str, Union[str, list[float]]],
+    options: dict[str, Any] = None,
+    pre_findings=None,
+    progress=None,
+):
     from deepface import DeepFace
+
     if not callable(progress):
-        progress = lambda x: True
+        progress = lambda *a: True
 
     findings = defaultdict(list)
     if pre_findings:
         findings.update(pre_findings)
-    for file1 in files:
+    for n, file1 in enumerate(files):
+        progress(n, file1)
         enc1 = encodings[file1]
         if enc1 == NO_FACE_DETECTED:
             findings[file1].append([NO_FACE_DETECTED, 99])
             continue
         for file2 in encodings.keys():
-            progress([file1, file2])
             if file1 == file2:
                 continue
             enc2 = encodings[file2]
             if enc2 == NO_FACE_DETECTED:
                 continue
-            res = DeepFace.verify(enc1, enc2,
-                                  silent=True,
-                                  **(options or {}))
-            findings[file1].append([file2, res['distance']])
+            res = DeepFace.verify(enc1, enc2, silent=True, **(options or {}))
+            findings[file1].append([file2, res["distance"]])
     return findings
 
 
