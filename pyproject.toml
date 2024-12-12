@@ -1,0 +1,23 @@
+[project]
+name = "facematch"
+version = "0.1.0"
+description = "Just a POC for detecting faces."
+authors = [
+    { name = "Allan,Stefano" },
+]
+dependencies = [
+    "jinja2",
+    "deepface",
+    "celery",
+    "numpy",
+]
+requires-python = "==3.12.*"
+readme = "README.md"
+license = { text = "MIT" }
+
+[tool.setuptools]
+py-modules = ["face_rec"]
+
+[build-system] # Include this if you are building distributions
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
