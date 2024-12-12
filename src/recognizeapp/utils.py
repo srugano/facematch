@@ -158,10 +158,13 @@ def dedupe_images(
         if enc1 == NO_FACE_DETECTED:
             findings[file1].append([NO_FACE_DETECTED, 99])
             continue
-        for file2 in encodings.keys():
+        for file2, enc2 in encodings.items():
             if file1 == file2:
                 continue
-            enc2 = encodings[file2]
+            if file2 in [x[0] for x in findings.get(file1, [])]:
+                continue
+            if file2 in findings:
+                continue
             if enc2 == NO_FACE_DETECTED:
                 continue
             res = DeepFace.verify(enc1, enc2, silent=True, **(options or {}))

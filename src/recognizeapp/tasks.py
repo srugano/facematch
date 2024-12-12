@@ -98,8 +98,8 @@ def get_encodings(self, results, config):
         "Encoding End Time": str(end_time),
         "Encoding Elapsed Time": str(chop_microseconds(elapsed)),
     }
-    print(results)
-    deduplicate_dataset.delay(config)
+    # print(results)
+    # deduplicate_dataset.delay(config)
     return results
 
 

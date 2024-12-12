@@ -1,23 +1,30 @@
 [project]
 name = "facematch"
 version = "0.1.0"
-description = "Just a POC for detecting faces."
-authors = [
-    { name = "Allan,Stefano" },
-]
-dependencies = [
-    "jinja2",
-    "deepface",
-    "celery",
-    "numpy",
-]
-requires-python = "==3.12.*"
+description = "Add your description here"
 readme = "README.md"
-license = { text = "MIT" }
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1.7",
+    "deepface>=0.0.93",
+    "jinja2>=3.1.4",
+    "tf-keras>=2.18.0",
+    "mtcnn>=1.0.0",
+    "celery>=5.4.0",
+    "psutil>=6.1.0",
+    "pillow>=11.0.0",
+    "redis>=5.2.1",
+    "flower>=2.0.1",
+]
 
-[tool.setuptools]
-py-modules = ["face_rec"]
+[project.scripts]
+dedupe = "recognizeapp.__main__:cli"
 
-[build-system] # Include this if you are building distributions
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+[tool.uv]
+package = true
+dev-dependencies = [
+    "black>=24.10.0",
+    "flake8>=7.1.1",
+    "isort>=5.13.2",
+    "watchdog>=6.0.0",
+]
