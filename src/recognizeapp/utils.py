@@ -3,7 +3,7 @@ import json
 from collections import defaultdict
 from functools import cached_property
 from pathlib import Path
-from typing import Union, Any
+from typing import Any, Union
 
 from deepface import DeepFace
 from jinja2 import Template

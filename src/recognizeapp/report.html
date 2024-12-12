@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Duplicate Images Report</title>
-    <style>
+    <head>
+        <title>Duplicate Images Report</title>
+        <style>
         table#findings {
             width: 100%;
             border-collapse: collapse;
@@ -30,60 +30,64 @@
         .missing {
 
         }
-    </style>
-    <script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"
-            integrity="sha256-kmHvs0B+OpCW5GVHUNjv9rOmY0IvSIRcf7zGUDTDQM8=" crossorigin="anonymous"></script>
-</head>
-<body>
-<h1>Duplicate Images Report</h1>
-<table id="metrics">
-    {% for k,v in metrics.items() %}
-        <tr>
-            <th>{{ k }}</th>
-            <td>{{ v }}</td>
-        </tr>
-    {% endfor %}
-</table>
-<div>Total {{ findings|length }} issues found</div>
-<div>Filtered issues: <span id="counter"></span></div>
-Hide pairs where distance is greater than <input type="number" id="threshold" step="0.01" value="0.5">
-Missing: <select id="include_missing">
-    <option value="i">Include</option>
-    <option value="e">Exclude</option>
-    <option value="o">Only</option>
-</select>
-Include Symmetric <input type="checkbox" id="include_symmetric" checked>
-
-<table id="findings">
-    <thead>
-    <tr>
-        <th>#</th>
-        <th>First Image</th>
-        <th>Second Image</th>
-        <th>Distance</th>
-    </tr>
-    </thead>
-    <tbody>
-    {% for entry in findings %}
-        <tr data-pair="{{ entry.3 }}" data-threshold="{{ entry.2 }}"
-            class="{% if entry.1 == "NO FACE DETECTED" or  entry.1 == "NO ENCODING" %}missing{% endif %}">
-            <td>{{ loop.counter }}</td>
-            <td><img src="{{ entry.0 }}">
-                <div class="small">{{ entry.0 }}</div>
-            </td>
-            <td>
-                {% if entry.1 != "NO FACE DETECTED" and  entry.1 != "NO ENCODING" %}
-                    <img src="{{ entry.1 }}">
-                {% endif %}
-                <div class="small">{{ entry.1 }}</div>
-            </td>
-            <td>{{ entry.2 }}</td>
-        </tr>
-    {% endfor %}
-    </tbody>
-</table>
-
-<script>
+        </style>
+        <script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"
+                integrity="sha256-kmHvs0B+OpCW5GVHUNjv9rOmY0IvSIRcf7zGUDTDQM8="
+                crossorigin="anonymous"></script>
+    </head>
+    <body>
+        <h1>Duplicate Images Report</h1>
+        <table id="metrics">
+            {% for k,v in metrics.items() %}
+                <tr>
+                    <th>{{ k }}</th>
+                    <td>{{ v }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+        <div>Total {{ findings|length }} issues found</div>
+        <div>
+            Filtered issues: <span id="counter"></span>
+        </div>
+        Hide pairs where distance is greater than
+        <input type="number" id="threshold" step="0.01" value="0.5">
+        Missing:
+        <select id="include_missing">
+            <option value="i">Include</option>
+            <option value="e">Exclude</option>
+            <option value="o">Only</option>
+        </select>
+        Include Symmetric
+        <input type="checkbox" id="include_symmetric" checked>
+        <table id="findings">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>First Image</th>
+                    <th>Second Image</th>
+                    <th>Distance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in findings %}
+                    <tr data-pair="{{ entry.3 }}"
+                        data-threshold="{{ entry.2 }}"
+                        class="{% if entry.1 == "NO FACE DETECTED" or  entry.1 == "NO ENCODING" %}missing{% endif %}">
+                        <td>{{ loop.counter }}</td>
+                        <td>
+                            <img src="{{ entry.0 }}">
+                            <div class="small">{{ entry.0 }}</div>
+                        </td>
+                        <td>
+                            {% if entry.1 != "NO FACE DETECTED" and  entry.1 != "NO ENCODING" %}<img src="{{ entry.1 }}">{% endif %}
+                            <div class="small">{{ entry.1 }}</div>
+                        </td>
+                        <td>{{ entry.2 }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <script>
     $(function () {
         var count_rows = function () {
             $("#counter").text($('table#findings').find('tr').not('.hidden2').not('.hidden').not('.hidden3').length - 1);
@@ -139,6 +143,6 @@ Include Symmetric <input type="checkbox" id="include_symmetric" checked>
         filter_table($("#threshold").val())
         count_rows();
     });
-</script>
-</body>
+        </script>
+    </body>
 </html>

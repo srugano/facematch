@@ -5,16 +5,11 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from celery import chord, Task
+from celery import Task, chord
 
 from recognizeapp.c import app
-from recognizeapp.utils import (
-    Dataset,
-    chop_microseconds,
-    dedupe_images,
-    encode_faces,
-    generate_report,
-)
+from recognizeapp.utils import (Dataset, chop_microseconds, dedupe_images,
+                                encode_faces, generate_report)
 
 WORKERS = 16
 
@@ -136,7 +131,7 @@ def deduplicate_dataset(self, config):
     size = len(chunks)
 
     tasks = [
-        dedupe_chunk.s(chunk, "%s/%s" % (n, size), config, existing_findings)
+        dedupe_chunk.s(chunk, f"{n}/{size}", config, existing_findings)
         for n, chunk in enumerate(chunks)
     ]
     dd = chord(tasks)(get_findings.s(config=config))
