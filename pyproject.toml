@@ -1,0 +1,35 @@
+[project]
+name = "facematch"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1.7",
+    "deepface>=0.0.93",
+    "jinja2>=3.1.4",
+    "tf-keras>=2.18.0",
+    "mtcnn>=1.0.0",
+    "celery>=5.4.0",
+    "psutil>=6.1.0",
+    "pillow>=11.0.0",
+    "redis>=5.2.1",
+    "flower>=2.0.1",
+    "gevent>=24.11.1",
+    "ipdb>=0.13.13",
+]
+
+[project.scripts]
+dedupe = "recognizeapp.__main__:cli"
+
+[tool.uv]
+package = true
+dev-dependencies = [
+    "black>=24.10.0",
+    "flake8>=7.1.1",
+    "isort>=5.13.2",
+    "watchdog>=6.0.0",
+]
+
+[tool.isort]
+profile = "black"
