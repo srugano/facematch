@@ -34,6 +34,7 @@ def convert_dict_keys_to_str(input_dict: Dict[Path, Any]) -> Dict[str, Any]:
 def encode_chunk(
     self: Task,
     files: List[str],
+    chunk_id: str,
     config: Dict[str, Any],
     pre_encodings: Dict[str, Any],
 ) -> Dict[str, Any]:
