@@ -3,7 +3,7 @@ import json
 from collections import defaultdict
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from deepface import DeepFace
 from jinja2 import Template
@@ -12,92 +12,107 @@ NO_FACE_DETECTED = "NO_FACE_DETECTED"
 
 
 class Dataset:
-    def __init__(self, config):
+    """
+    A class to manage dataset-related operations, such as encoding and deduplication.
+    """
+
+    def __init__(self, config: Dict[str, Any]):
         self.config = {**config}
-        self.path = Path(self.config.pop("path")).absolute()
-        self.options = config["options"]
-        self.storage = Path  # to avoid mistakes
+        self.path: Path = Path(self.config.pop("path")).absolute()
+        self.options: Dict[str, Any] = config["options"]
+        self.storage: Callable[[Path], Path] = Path  # Default to Path to avoid mistakes
 
     def __str__(self):
-        return f"<Dataset: {Path(self.path).name}"
+        return f"<Dataset: {self.path.name}>"
 
-    def _get_filename(self, prefix, suffix=".json") -> str:
+    def _get_filename(self, prefix: str, suffix: str = ".json") -> Path:
+        """Generate a file name based on the prefix and dataset options."""
         parts = [self.options["model_name"], self.options["detector_backend"]]
         extra = "_".join(parts)
-        return str(self.storage(self.path) / f"_{prefix}_{extra}{suffix}")
+        return self.storage(self.path) / f"_{prefix}_{extra}{suffix}"
 
     @cached_property
-    def encoding_db_name(self) -> str:
+    def encoding_db_name(self) -> Path:
+        """Return the file name for the encoding database."""
         return self._get_filename("encoding")
 
     @cached_property
-    def findings_db_name(self) -> str:
+    def findings_db_name(self) -> Path:
+        """Return the file name for the findings database."""
         return self._get_filename("findings")
 
     @cached_property
-    def silenced_db_name(self) -> str:
+    def silenced_db_name(self) -> Path:
+        """Return the file name for the silenced database."""
         return self._get_filename("silenced")
 
     @cached_property
-    def runinfo_db_name(self) -> str:
+    def runinfo_db_name(self) -> Path:
+        """Return the file name for performance metrics."""
         return self._get_filename("perf")
 
     def reset(self):
-        self.storage(self.encoding_db_name).unlink(True)
-        self.storage(self.findings_db_name).unlink(True)
-        self.storage(self.silenced_db_name).unlink(True)
+        """Delete all related database files to reset the dataset."""
+        self.storage(self.encoding_db_name).unlink(missing_ok=True)
+        self.storage(self.findings_db_name).unlink(missing_ok=True)
+        self.storage(self.silenced_db_name).unlink(missing_ok=True)
 
-    def get_encoding(self):
+    def get_encoding(self) -> Dict[Path, Union[str, List[float]]]:
+        """Load the encodings from the encoding database file."""
         if self.storage(self.encoding_db_name).exists():
             return json.loads(self.storage(self.encoding_db_name).read_text())
-        else:
-            return {}
+        return {}
 
-    def get_findings(self):
+    def get_findings(self) -> Dict[Path, Any]:
+        """Load the findings from the findings database file."""
         if self.storage(self.findings_db_name).exists():
             return json.loads(self.storage(self.findings_db_name).read_text())
-        else:
-            return {}
+        return {}
 
-    def get_perf(self):
+    def get_perf(self) -> Dict[Path, Any]:
+        """Load performance metrics from the performance database file."""
         if self.storage(self.runinfo_db_name).exists():
             return json.loads(self.storage(self.runinfo_db_name).read_text())
-        else:
-            return {}
+        return {}
 
-    def get_silenced(self):
+    def get_silenced(self) -> Dict[Path, Any]:
+        """Load the silenced findings from the silenced database file."""
         if self.storage(self.silenced_db_name).exists():
             return json.loads(self.storage(self.silenced_db_name).read_text())
-        else:
-            return {}
+        return {}
 
-    def get_files(self):
+    def get_files(self) -> List[str]:
+        """Retrieve all valid image files from the dataset directory."""
         patterns = ("*.png", "*.jpg", "*.jpeg")
-        files = [
+        return [
             str(f.absolute())
             for f in self.storage(self.path).iterdir()
             if any(f.match(p) for p in patterns)
         ]
-        return files
 
-    def update_findings(self, findings):
+    def update_findings(self, findings: Dict[str, Any]) -> Path:
+        """Update the findings database with new findings."""
         self.storage(self.findings_db_name).write_text(json.dumps(findings))
         return self.findings_db_name
 
-    def update_encodings(self, encodings):
+    def update_encodings(self, encodings: Dict[str, Any]) -> Path:
+        """Update the encoding database with new encodings."""
         self.storage(self.encoding_db_name).write_text(json.dumps(encodings))
         return self.encoding_db_name
 
-    def save_run_info(self, info):
+    def save_run_info(self, info: Dict[str, Any]) -> None:
+        """Save performance metrics to the performance database."""
         self.storage(self.runinfo_db_name).write_text(json.dumps(info))
 
-    def get_encoding_config(self) -> dict[str, Union[str, int, float, bool]]:
+    def get_encoding_config(self) -> Dict[str, Union[str, int, float, bool]]:
+        """Retrieve encoding configuration options."""
         return {
             "model_name": self.options["model_name"],
             "detector_backend": self.options["detector_backend"],
         }
 
-    def get_dedupe_config(self) -> dict[str, Union[str, int, float, bool]]:
+    def get_dedupe_config(self) -> Dict[str, Union[str, int, float, bool]]:
+        """Retrieve deduplication configuration options."""
         return {
             "threshold": self.options["threshold"],
             "model_name": self.options["model_name"],
@@ -105,22 +120,21 @@ class Dataset:
         }
 
 
-def chop_microseconds(delta):
+def chop_microseconds(delta: datetime.timedelta) -> datetime.timedelta:
+    """Remove microseconds from a timedelta."""
     return delta - datetime.timedelta(microseconds=delta.microseconds)
 
 
 def encode_faces(
-    files: list[str], options=None, pre_encodings=None, progress=None
-) -> dict[str, Union[str, list[float]]]:
-    from deepface import DeepFace
-
+    files: List[str],
+    options: Optional[Dict[str, Any]] = None,
+    pre_encodings: Optional[Dict[str, Union[str, List[float]]]] = None,
+    progress: Optional[Callable[[int, str], None]] = None,
+) -> Dict[str, Union[str, List[float]]]:
+    """Encode faces from a list of image files."""
     if not callable(progress):
-        progress = lambda *a: True
-
-    results = {}
-    if pre_encodings:
-        results.update(pre_encodings)
-
+        progress = lambda *a: None
+    results = pre_encodings or {}
     for n, file in enumerate(files):
         progress(n, file)
         if file in results:
@@ -138,32 +152,27 @@ def encode_faces(
 
 
 def dedupe_images(
-    files: list[str],
-    encodings: dict[str, Union[str, list[float]]],
-    options: dict[str, Any] = None,
-    pre_findings=None,
-    progress=None,
-):
-    from deepface import DeepFace
-
+    files: List[str],
+    encodings: Dict[str, Union[str, List[float]]],
+    options: Optional[Dict[str, Any]] = None,
+    pre_findings: Optional[Dict[str, Any]] = None,
+    progress: Optional[Callable[[int, str], None]] = None,
+) -> Dict[str, List[Union[str, float]]]:
+    """Find duplicate images based on face encodings."""
     if not callable(progress):
-        progress = lambda *a: True
+        progress = lambda *a: None
 
-    findings = defaultdict(list)
-    if pre_findings:
-        findings.update(pre_findings)
+    findings = defaultdict(list, pre_findings or {})
     for n, file1 in enumerate(files):
         progress(n, file1)
         enc1 = encodings[file1]
+        # Skip if the encoding is NO_FACE_DETECTED or not a list of floats
         if enc1 == NO_FACE_DETECTED:
             findings[file1].append([NO_FACE_DETECTED, 99])
             continue
+        # Skip if comparing the same file or enc2 is not valid
         for file2, enc2 in encodings.items():
-            if file1 == file2:
-                continue
-            if file2 in [x[0] for x in findings.get(file1, [])]:
-                continue
-            if file2 in findings:
+            if file1 == file2 or file2 in [x[0] for x in findings.get(file1, [])]:
                 continue
             if enc2 == NO_FACE_DETECTED:
                 continue
@@ -172,21 +181,32 @@ def dedupe_images(
     return findings
 
 
-def generate_report(working_dir, findings, metrics):
-    global manager
+def generate_report(
+    working_dir: Path,
+    findings: Dict[str, List[Union[str, float]]],
+    metrics: Dict[str, Any],
+    report_file: Path,
+    save_to_file: bool = True,
+) -> Path:
+    """Generate an HTML report from findings and metrics."""
 
-    def _resolve(p):
+    def _resolve(p: Union[Path, str]) -> Union[Path, str]:
         if p == NO_FACE_DETECTED:
             return NO_FACE_DETECTED
         return Path(p).absolute().relative_to(working_dir)
 
-    template = (Path(__file__).parent / "report.html").read_text()
+    template_path = Path(__file__).parent / "report.html"
+    template = Template(template_path.read_text())
 
     results = []
     for img, duplicates in findings.items():
         for dup in duplicates:
-            pair_key = sorted([img, dup[0]])
-            results.append([_resolve(img), _resolve(dup[0]), dup[1], pair_key])
+            results.append([_resolve(img), _resolve(dup[0]), dup[1]])
 
     results = sorted(results, key=lambda x: x[2])
-    return Template(template).render(metrics=metrics, findings=results)
+    rendered_content = template.render(metrics=metrics, findings=results)
+    if save_to_file:
+        report_file.write_text(rendered_content, encoding="utf-8")
+        print(f"Report successfully saved to {report_file}")
+
+    return rendered_content
