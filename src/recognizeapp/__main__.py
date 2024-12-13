@@ -11,57 +11,48 @@ import click
 from jinja2 import Template
 
 from recognizeapp.utils import (Dataset, dedupe_images, encode_faces,
-                                generate_report)
+                                generate_report, get_chunks)
 
 NO_FACE_DETECTED = "NO FACE DETECTED"
 
 
-def process_files(
-    files: list[str],
-    threshold=0.4,
-    num_processes=4,
-    depface_options=None,
-    pre_encodings=None,
-    pre_findings=None,
-):
+def process_files(config, num_processes):
+    ds = Dataset(config)
     start_time = datetime.now()
     tracemalloc.start()
-
-    if num_processes > 1:
-        chunk_size = len(files) // num_processes
-        args = [files[i : i + chunk_size] for i in range(0, len(files), chunk_size)]
-    else:
-        args = [sorted(files)]
+    total_files = ds.get_files()
+    chunks = get_chunks(total_files, num_processes)
 
     with multiprocessing.Pool(processes=num_processes) as pool:
         try:
             partial_enc = pool.map(
                 partial(
-                    encode_faces, options=depface_options, pre_encodings=pre_encodings
+                    encode_faces, options=ds.get_encoding_config(), pre_encodings=ds.get_encoding()
                 ),
-                args,
+                chunks,
             )
         except KeyboardInterrupt:
             pool.terminate()
             pool.close()
     encodings = {}
-    for d in partial_enc:
+    added = exiting = 0
+    for d, a, e in partial_enc:
+        added += a
+        exiting += e
         encodings.update(d)
 
     # encodings = encode_faces(args, depface_options, pre_encodings=pre_encodings)
     encoding_time = datetime.now()
-
     with multiprocessing.Pool(processes=num_processes) as pool:
         try:
             partial_find = pool.map(
                 partial(
                     dedupe_images,
-                    threshold=threshold,
-                    options=depface_options,
+                    options=ds.get_dedupe_config(),
                     encodings=encodings,
-                    pre_findings=pre_findings,
+                    pre_findings=ds.get_findings(),
                 ),
-                args,
+                chunks,
             )
         except KeyboardInterrupt:
             pool.terminate()
@@ -79,16 +70,15 @@ def process_files(
         "Deduplication Time": str(end_time - encoding_time),
         "Total Time": str(end_time - start_time),
         "RAM Mb": str(top_stats[0].size / 1024 / 1024),
-        "Total Files": len(files),
-        "Duplicates": len(findings),
-        "Threshold": threshold,
         "Processes": num_processes,
-        **depface_options,
+        "------": "--------",
+        "Total Files": len(total_files),
+        "New Images": added,
+        "Database": len(encodings),
+        "Findings": len(findings),
+        "======": "======",
+        **config["options"],
     }
-
-    sys.stdout.write(f"Encoding Time:      {encoding_time - start_time} \n")
-    sys.stdout.write(f"Deduplication Time: {end_time - encoding_time} \n")
-    sys.stdout.write(f"Total Time:         {end_time - start_time} \n")
     return encodings, findings, metrics
 
 
@@ -102,7 +92,7 @@ def process_files(
     "--processes",
     type=int,
     default=multiprocessing.cpu_count(),
-    help="The number of processes to use.",
+    help="The number of processes to use."
 )
 @click.option(
     "--model-name",
@@ -137,9 +127,19 @@ def process_files(
             "skip",
         ]
     ),
-    default="retinaface",
+    default="retinaface")
+@click.option(
+    "--distance-metric",
+    type=click.Choice(
+        [
+            "cosine",
+            "euclidean",
+            "euclidean_l12"
+        ]
+    ),
+    default="cosine"
 )
-def cli(path, processes, threshold, reset, queue, **depface_options):
+def cli(path, processes, reset, queue, **depface_options):
     patterns = ("*.png", "*.jpg", "*.jpeg")
     files = [
         str(f.absolute())
@@ -149,37 +149,40 @@ def cli(path, processes, threshold, reset, queue, **depface_options):
 
     processes = min(len(files), processes)
     ds = Dataset({"path": path, "options": depface_options})
-    report_file = (
-        Path(path)
-        / f"_report_{depface_options["model_name"]}_{depface_options["detector_backend"]}.html"
-    )
+
     click.echo(f"Processing {len(files)} files")
 
     if reset:
         ds.reset()
-    pre_encodings = ds.get_encoding()
-    pre_findings = ds.get_findings()
+    else:
+        ds.storage(ds.findings_db_name).unlink(True)
+
+    config = {"options": {**depface_options}, "path": path}
 
     if queue:
         from .tasks import process_dataset
 
-        config = {"options": {**depface_options, "threshold": threshold}, "path": path}
         res = process_dataset.delay(config)
     else:
+        click.echo(f"Spawn {processes} processes")
+
         # initialize to evalue perf
         # DeepFace.build_model(depface_options["model_name"], "facial_recognition")
         # DeepFace.build_model(depface_options["detector_backend"], "face_detector")
-        encodings, findings, metrics = process_files(
-            files,
-            threshold=threshold,
-            num_processes=processes,
-            depface_options=depface_options,
-            pre_encodings=pre_encodings,
-            pre_findings=pre_findings,
-        )
-        metrics["Processes"] = processes
+        pre_encodings = ds.get_encoding()
+        click.echo(f"Found {len(pre_encodings)} existing encodings")
+
+        pre_findings = ds.get_findings()
+        encodings, findings, metrics = process_files(config, processes)
+
+        for k, v in metrics.items():
+            click.echo(f"{k:<25}: {v}")
+
         ds.update_findings(findings)
         ds.update_encodings(encodings)
         ds.save_run_info(metrics)
 
-        generate_report(Path(path).absolute(), findings, metrics)
+        content = generate_report(ds.path, ds.get_findings(), ds.get_perf())
+        report_file = Path(ds._get_filename("_report", ".html"))
+        report_file.write_text(content)
+        click.echo(f"Report saved to {report_file.absolute()}")

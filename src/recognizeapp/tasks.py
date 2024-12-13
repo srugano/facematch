@@ -16,7 +16,7 @@ WORKERS = 16
 
 #
 def notify_status(counter, filepath, task: Task, size, **kwargs):
-    print(f"-> {counter} {filepath}")
+    # print(f"-> {counter} {filepath}")
     task.update_state(
         state="PROGRESS", meta=json.dumps({"file": filepath, "counter": counter})
     )
@@ -77,7 +77,7 @@ def get_findings(self, results, config):
         "Deduplication Elapsed": str(chop_microseconds(elapsed2)),
     }
     ds.save_run_info(results)
-    print(results)
+    # print(results)
     save_report.delay(config)
     return results
 
@@ -99,7 +99,7 @@ def get_encodings(self, results, config):
         "Encoding Elapsed Time": str(chop_microseconds(elapsed)),
     }
     # print(results)
-    # deduplicate_dataset.delay(config)
+    deduplicate_dataset.delay(config)
     return results
 
 
@@ -109,16 +109,8 @@ def save_report(self, config):
     content = generate_report(ds.path, ds.get_findings(), ds.get_perf())
     report_file = Path(ds._get_filename("_report", ".html"))
     report_file.write_text(content)
-    print("Report available at: ", Path(report_file).absolute())
+    # print("Report available at: ", Path(report_file).absolute())
     return {**config, "Report available at: ": str(Path(report_file).absolute())}
-
-
-def get_chunks(elements: list[Any]) -> list[list[Any]]:
-    processes = min(len(elements), WORKERS)
-    chunk_size = len(elements) // processes
-    chunks = [elements[i : i + chunk_size] for i in range(0, len(elements), chunk_size)]
-    return chunks
-
 
 @app.task(bind=True)
 def deduplicate_dataset(self, config):
@@ -126,7 +118,7 @@ def deduplicate_dataset(self, config):
     encoded = ds.get_encoding()
     existing_findings = ds.get_findings()
     now = datetime.now()
-    config["sys"]["dedupe_start_time"] = int(round(now.timestamp()))
+    # config["sys"]["dedupe_start_time"] = int(round(now.timestamp()))
     chunks = get_chunks(list(encoded.keys()))
     size = len(chunks)
 
@@ -137,7 +129,7 @@ def deduplicate_dataset(self, config):
     dd = chord(tasks)(get_findings.s(config=config))
 
     result = {"ds": str(ds), "async_result": str(dd)}
-    print(result)
+    # print(result)
     return result
 
 
@@ -165,5 +157,5 @@ def process_dataset(self, config):
         "start_time": str(now),
         "chunks": len(chunks),
     }
-    print(f"process results: {result}")
+    # print(f"process results: {result}")
     return result
