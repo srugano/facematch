@@ -2,7 +2,7 @@
 
 This repository is a proof-of-concept (POC) for detecting duplicate images using facial recognition techniques. It leverages DeepFace for face detection and feature embedding, and provides options for both single-process and multi-process deduplication. Celery integration allows for distributed task processing, making it suitable for larger datasets.
 
----
+
 
 ## Features
 
@@ -132,18 +132,19 @@ The `DeepFace.represent()` function generates 128-dimensional feature vectors fo
 - `--queue`: Use Celery for distributed task processing.
 - `--reset`: Reset findings and encodings before processing.
 - `--report`: Generate an HTML report after deduplication.
-- `--model-name`: Specify the model name to use (e.g., `retinaface`, `mtcnn`). 
+- `--model-name`: Specify the model name to use (e.g., `VGG-Face`, `ArcFace`, `Facenet`, ...). 
+- `--detector-backend`: Specify the model name to use (e.g., `retinaface`, `mtcnn`, ...). 
 
 ---
 
 ## Troubleshooting
 
 1. **`NO_FACE_DETECTED` for Valid Images**:
-   - Ensure the correct backend is specified (e.g., `VGG-Face`, `ArcFace`. Default to VGG-Face).
+   - Ensure the correct model is specified (e.g., `VGG-Face`, `ArcFace`. Default to VGG-Face) or the correct backend.
    - Try enabling `enforce_detection=False` in `DeepFace`.
 
 2. **Celery Worker Not Starting**:
-   - Check if `watchmedo` is installed: `pip install watchdog`.
+   - Check if `watchmedo` is installed: `uv sync`.
    - Verify Celery configurations.
 
 3. **Performance Issues**:
@@ -154,8 +155,7 @@ The `DeepFace.represent()` function generates 128-dimensional feature vectors fo
 
 ## Future Enhancements
 
-- Add support for storing encodings in databases (e.g., perceptual hashing).
+- Add support for storing encodings in databases (e.g., postgres, redis).
 - Integrate GPU acceleration for faster embedding generation.
 - Extend reporting capabilities with more detailed analytics.
 
----
