@@ -8,7 +8,7 @@ from typing import Any, Dict
 import click
 
 from recognizeapp.utils import (Dataset, dedupe_images, encode_faces,
-                                generate_report)
+                                generate_report, get_chunks)
 
 NO_FACE_DETECTED = "NO FACE DETECTED"
 
@@ -65,63 +65,44 @@ def validate_and_adjust_options(options: Dict[str, Any]) -> Dict[str, Any]:
     return options
 
 
-def process_files(
-    files,
-    threshold=0.5,
-    num_processes=1,
-    depface_options=None,
-    pre_encodings=None,
-    pre_findings=None,
-):
-    """
-    Process a list of image files to encode faces and find duplicates.
-
-    :param files: List of file paths to process.
-    :param threshold: Similarity threshold for duplicate detection.
-    :param num_processes: Number of parallel processes.
-    :param depface_options: Options for face detection/recognition.
-    :param pre_encodings: Pre-existing encodings (if available).
-    :param pre_findings: Pre-existing findings (if available).
-    :return: Encodings, findings, and performance metrics.
-    """
+def process_files(config, num_processes):
+    ds = Dataset(config)
     start_time = datetime.now()
     tracemalloc.start()
-
-    # Divide files into chunks for multiprocessing
-    if num_processes > 1:
-        chunk_size = max(1, len(files) // num_processes)
-        args = [files[i : i + chunk_size] for i in range(0, len(files), chunk_size)]
-    else:
-        args = [sorted(files)]
+    total_files = ds.get_files()
+    chunks = get_chunks(total_files, num_processes)
 
     # Encode faces in parallel
     with multiprocessing.Pool(processes=num_processes) as pool:
         try:
             partial_enc = pool.map(
                 partial(
-                    encode_faces, options=depface_options, pre_encodings=pre_encodings
+                    encode_faces,
+                    options=ds.get_encoding_config(),
+                    pre_encodings=ds.get_encoding(),
                 ),
-                args,
+                chunks,
             )
         except KeyboardInterrupt:
             pool.terminate()
             pool.close()
     encodings = {}
-    for d in partial_enc:
+    added = exiting = 0
+    for d, a, e in partial_enc:
+        added += a
+        exiting += e
         encodings.update(d)
     encoding_time = datetime.now()
-
-    # Deduplicate faces in parallel
     with multiprocessing.Pool(processes=num_processes) as pool:
         try:
             partial_find = pool.map(
                 partial(
                     dedupe_images,
-                    options=depface_options,
+                    options=ds.get_dedupe_config(),
                     encodings=encodings,
-                    pre_findings=pre_findings,
+                    pre_findings=ds.get_findings(),
                 ),
-                args,
+                chunks,
             )
         except KeyboardInterrupt:
             pool.terminate()
@@ -139,17 +120,16 @@ def process_files(
         "Encoding Time": str(encoding_time - start_time),
         "Deduplication Time": str(end_time - encoding_time),
         "Total Time": str(end_time - start_time),
-        "RAM Mb": top_stats[0].size / 1024 / 1024,
-        "Total Files": len(files),
-        "Duplicates": len(findings),
-        "Threshold": threshold,
+        "RAM Mb": str(top_stats[0].size / 1024 / 1024),
         "Processes": num_processes,
-        **depface_options,
+        "------": "--------",
+        "Total Files": len(total_files),
+        "New Images": added,
+        "Database": len(encodings),
+        "Findings": len(findings),
+        "======": "======",
+        **config["options"],
     }
-
-    click.echo(f"Encoding Time:      {metrics['Encoding Time']}")
-    click.echo(f"Deduplication Time: {metrics['Deduplication Time']}")
-    click.echo(f"Total Time:         {metrics['Total Time']}")
     return encodings, findings, metrics
 
 
@@ -256,8 +236,10 @@ def cli(path, processes, threshold, reset, queue, report, verbose, **depface_opt
     # Reset dataset if requested
     if reset:
         ds.reset()
-    pre_encodings = ds.get_encoding()
-    pre_findings = ds.get_findings()
+    else:
+        ds.storage(ds.findings_db_name).unlink(True)
+
+    config = {"options": {**depface_options}, "path": path}
 
     # Process dataset in queue mode
     if queue:

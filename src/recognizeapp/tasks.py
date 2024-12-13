@@ -16,7 +16,6 @@ WORKERS = 16
 
 def notify_status(counter: int, filepath: str, task: Task, size: int, **kwargs):
     """Update task status."""
-    print(f"-> {counter} {filepath}")
     task.update_state(
         state="PROGRESS", meta=json.dumps({"file": filepath, "counter": counter})
     )
@@ -151,7 +150,7 @@ def deduplicate_dataset(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
     existing_findings = ds.get_findings()
 
     now = datetime.now()
-    config["sys"]["dedupe_start_time"] = int(round(now.timestamp()))
+    # config["sys"]["dedupe_start_time"] = int(round(now.timestamp()))
     chunks = get_chunks(list(encoded.keys()))
     size = len(chunks)
 
@@ -186,3 +185,4 @@ def process_dataset(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
         "start_time": str(now),
         "chunks": len(chunks),
     }
+    return result

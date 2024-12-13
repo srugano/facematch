@@ -15,6 +15,7 @@ dependencies = [
     "pillow>=11.0.0",
     "redis>=5.2.1",
     "flower>=2.0.1",
+    "gevent>=24.11.1",
 ]
 
 [project.scripts]

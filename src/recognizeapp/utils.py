@@ -1,11 +1,11 @@
 import datetime
 import json
+import multiprocessing
 from collections import defaultdict
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from deepface import DeepFace
 from jinja2 import Template
 
 NO_FACE_DETECTED = "NO_FACE_DETECTED"
@@ -126,29 +126,42 @@ def chop_microseconds(delta: datetime.timedelta) -> datetime.timedelta:
 
 
 def encode_faces(
-    files: List[str],
-    options: Optional[Dict[str, Any]] = None,
-    pre_encodings: Optional[Dict[str, Union[str, List[float]]]] = None,
-    progress: Optional[Callable[[int, str], None]] = None,
-) -> Dict[str, Union[str, List[float]]]:
-    """Encode faces from a list of image files."""
+    files: list[str], options=None, pre_encodings=None, progress=None
+) -> tuple[dict[str, Union[str, list[float]]], int, int]:
+    from deepface import DeepFace
+
     if not callable(progress):
-        progress = lambda *a: None
-    results = pre_encodings or {}
+        progress = lambda *a: True
+
+    results = {}
+    if pre_encodings:
+        results.update(pre_encodings)
+    added = existing = 0
     for n, file in enumerate(files):
         progress(n, file)
         if file in results:
+            existing += 1
             continue
         try:
             result = DeepFace.represent(file, **(options or {}))
             if len(result) > 1:
                 raise ValueError("More than one face detected")
             results[file] = result[0]["embedding"]
+            added += 1
         except TypeError as e:
             results[file] = str(e)
         except ValueError:
             results[file] = NO_FACE_DETECTED
-    return results
+    return results, added, existing
+
+
+def get_chunks(
+    elements: list[Any], max_len=multiprocessing.cpu_count()
+) -> list[list[Any]]:
+    processes = min(len(elements), max_len)
+    chunk_size = len(elements) // processes
+    chunks = [elements[i : i + chunk_size] for i in range(0, len(elements), chunk_size)]
+    return chunks
 
 
 def dedupe_images(
@@ -176,7 +189,8 @@ def dedupe_images(
                 continue
             if enc2 == NO_FACE_DETECTED:
                 continue
-            res = DeepFace.verify(enc1, enc2, silent=True, **(options or {}))
+            print(111.1, options)
+            res = DeepFace.verify(enc1, enc2, **(options or {}))
             findings[file1].append([file2, res["distance"]])
     return findings
 
@@ -210,3 +224,6 @@ def generate_report(
         print(f"Report successfully saved to {report_file}")
 
     return rendered_content
+
+def distance_to_similarity(distance):
+    return 1 - distance
