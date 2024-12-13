@@ -6,7 +6,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Union
 
-from deepface import DeepFace
 from jinja2 import Template
 
 NO_FACE_DETECTED = "NO_FACE_DETECTED"
@@ -111,7 +110,7 @@ def chop_microseconds(delta):
 
 
 def encode_faces(
-        files: list[str], options=None, pre_encodings=None, progress=None
+    files: list[str], options=None, pre_encodings=None, progress=None
 ) -> tuple[dict[str, Union[str, list[float]]], int, int]:
     from deepface import DeepFace
 
@@ -140,19 +139,21 @@ def encode_faces(
     return results, added, existing
 
 
-def get_chunks(elements: list[Any], max_len=multiprocessing.cpu_count()) -> list[list[Any]]:
+def get_chunks(
+    elements: list[Any], max_len=multiprocessing.cpu_count()
+) -> list[list[Any]]:
     processes = min(len(elements), max_len)
     chunk_size = len(elements) // processes
-    chunks = [elements[i: i + chunk_size] for i in range(0, len(elements), chunk_size)]
+    chunks = [elements[i : i + chunk_size] for i in range(0, len(elements), chunk_size)]
     return chunks
 
 
 def dedupe_images(
-        files: list[str],
-        encodings: dict[str, Union[str, list[float]]],
-        options: dict[str, Any] = None,
-        pre_findings=None,
-        progress=None,
+    files: list[str],
+    encodings: dict[str, Union[str, list[float]]],
+    options: dict[str, Any] = None,
+    pre_findings=None,
+    progress=None,
 ):
     from deepface import DeepFace
 

@@ -27,7 +27,9 @@ def process_files(config, num_processes):
         try:
             partial_enc = pool.map(
                 partial(
-                    encode_faces, options=ds.get_encoding_config(), pre_encodings=ds.get_encoding()
+                    encode_faces,
+                    options=ds.get_encoding_config(),
+                    pre_encodings=ds.get_encoding(),
                 ),
                 chunks,
             )
@@ -92,7 +94,7 @@ def process_files(config, num_processes):
     "--processes",
     type=int,
     default=multiprocessing.cpu_count(),
-    help="The number of processes to use."
+    help="The number of processes to use.",
 )
 @click.option(
     "--model-name",
@@ -127,17 +129,12 @@ def process_files(config, num_processes):
             "skip",
         ]
     ),
-    default="retinaface")
+    default="retinaface",
+)
 @click.option(
     "--distance-metric",
-    type=click.Choice(
-        [
-            "cosine",
-            "euclidean",
-            "euclidean_l12"
-        ]
-    ),
-    default="cosine"
+    type=click.Choice(["cosine", "euclidean", "euclidean_l12"]),
+    default="cosine",
 )
 def cli(path, processes, reset, queue, **depface_options):
     patterns = ("*.png", "*.jpg", "*.jpeg")

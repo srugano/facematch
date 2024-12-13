@@ -112,6 +112,7 @@ def save_report(self, config):
     # print("Report available at: ", Path(report_file).absolute())
     return {**config, "Report available at: ": str(Path(report_file).absolute())}
 
+
 @app.task(bind=True)
 def deduplicate_dataset(self, config):
     ds = Dataset(config)
