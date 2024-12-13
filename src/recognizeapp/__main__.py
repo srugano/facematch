@@ -7,8 +7,13 @@ from typing import Any, Dict
 
 import click
 
-from recognizeapp.utils import (Dataset, dedupe_images, encode_faces,
-                                generate_report, get_chunks)
+from recognizeapp.utils import (
+    Dataset,
+    dedupe_images,
+    encode_faces,
+    generate_report,
+    get_chunks,
+)
 
 NO_FACE_DETECTED = "NO FACE DETECTED"
 
@@ -18,7 +23,7 @@ MODEL_BACKEND_COMPATIBILITY = {
     "Facenet": ["mtcnn", "retinaface", "mediapipe"],
     "Facenet512": ["mtcnn", "retinaface", "mediapipe"],
     "OpenFace": ["opencv", "mtcnn"],
-    "DeepFace": ["mtcnn", "retinaface", "ssd", "dlib"],
+    "DeepFace": ["mtcnn", "ssd", "dlib"],
     "DeepID": ["mtcnn", "opencv"],
     "Dlib": ["dlib", "mediapipe"],
     "ArcFace": ["mtcnn", "retinaface"],
@@ -65,7 +70,7 @@ def validate_and_adjust_options(options: Dict[str, Any]) -> Dict[str, Any]:
     return options
 
 
-def process_files(config, num_processes):
+def process_files(config, num_processes, pre_findings):
     ds = Dataset(config)
     start_time = datetime.now()
     tracemalloc.start()
@@ -100,7 +105,7 @@ def process_files(config, num_processes):
                     dedupe_images,
                     options=ds.get_dedupe_config(),
                     encodings=encodings,
-                    pre_findings=ds.get_findings(),
+                    pre_findings=pre_findings,
                 ),
                 chunks,
             )
@@ -135,16 +140,7 @@ def process_files(config, num_processes):
 
 @click.command()
 @click.argument("path", type=click.Path(exists=True, file_okay=False))
-@click.option(
-    "-t",
-    "--threshold",
-    type=float,
-    default=0.5,
-    help="Similarity threshold for duplicate detection.",
-)
-@click.option(
-    "--reset", is_flag=True, help="Reset the dataset (clear encodings and findings)."
-)
+@click.option("--reset", is_flag=True, help="Reset the dataset (clear encodings and findings).")
 @click.option("--queue", is_flag=True, help="Queue the task for background processing.")
 @click.option("--report", is_flag=True, help="Generate a report after processing.")
 @click.option(
@@ -183,7 +179,6 @@ def process_files(config, num_processes):
             "ssd",
             "dlib",
             "mediapipe",
-            "yolov8",
             "centerface",
             "skip",
         ]
@@ -192,13 +187,12 @@ def process_files(config, num_processes):
     help="Face detection backend to use.",
 )
 @click.option("--verbose", is_flag=True, help="Enable verbose output for debugging.")
-def cli(path, processes, threshold, reset, queue, report, verbose, **depface_options):
+def cli(path, processes, reset, queue, report, verbose, **depface_options):
     """
     CLI to process a folder of images to detect and deduplicate faces.
 
     :param path: Path to the folder containing images.
     :param processes: Number of processes to use.
-    :param threshold: Similarity threshold for duplicates.
     :param reset: Reset the dataset (clear encodings and findings).
     :param queue: Queue the task for background processing.
     :param report: Generate a report after processing.
@@ -207,11 +201,7 @@ def cli(path, processes, threshold, reset, queue, report, verbose, **depface_opt
     depface_options = validate_and_adjust_options(depface_options)
 
     patterns = ("*.png", "*.jpg", "*.jpeg")
-    files = [
-        str(f.absolute())
-        for f in Path(path).iterdir()
-        if any(f.match(p) for p in patterns)
-    ]
+    files = [str(f.absolute()) for f in Path(path).iterdir() if any(f.match(p) for p in patterns)]
     # Handle empty directories
     if not files:
         click.echo("No image files found in the provided directory. Exiting.", err=True)
@@ -223,14 +213,10 @@ def cli(path, processes, threshold, reset, queue, report, verbose, **depface_opt
     if verbose:
         click.echo(f"Model: {depface_options['model_name']}")
         click.echo(f"Backend: {depface_options['detector_backend']}")
-        click.echo(f"Threshold: {threshold}")
         click.echo(f"Process: {processes}")
 
     ds = Dataset({"path": path, "options": depface_options})
-    report_file = (
-        Path(path)
-        / f"_report_{depface_options['model_name']}_{depface_options['detector_backend']}.html"
-    )
+    report_file = Path(path) / f"_report_{depface_options['model_name']}_{depface_options['detector_backend']}.html"
     click.echo(f"Processing {len(files)} files in {path}")
 
     # Reset dataset if requested
@@ -241,29 +227,26 @@ def cli(path, processes, threshold, reset, queue, report, verbose, **depface_opt
 
     config = {"options": {**depface_options}, "path": path}
 
-    # Process dataset in queue mode
     if queue:
         from recognizeapp.tasks import process_dataset
 
-        config = {"options": {**depface_options, "threshold": threshold}, "path": path}
+        config = {"options": {**depface_options}, "path": path}
         process_dataset.delay(config)
     else:
-        encodings, findings, metrics = process_files(
-            files,
-            threshold=threshold,
-            num_processes=processes,
-            depface_options=depface_options,
-            pre_encodings=pre_encodings,
-            pre_findings=pre_findings,
-        )
-        metrics["Processes"] = processes
+        click.echo(f"Spawn {processes} processes")
+        pre_encodings = ds.get_encoding()
+        click.echo(f"Found {len(pre_encodings)} existing encodings")
+        pre_findings = ds.get_findings()
+        encodings, findings, metrics = process_files(config, processes, pre_findings)
+        for k, v in metrics.items():
+            click.echo(f"{k:<25}: {v}")
+
         ds.update_findings(findings)
         ds.update_encodings(encodings)
         ds.save_run_info(metrics)
 
-    # Generate report if the `--report` flag is set
-    if report:
-        generate_report(Path(path).absolute(), findings, metrics, report_file)
+        if report:
+            generate_report(ds.path, ds.get_findings(), ds.get_perf(), report_file)
 
 
 if __name__ == "__main__":

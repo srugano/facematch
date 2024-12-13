@@ -8,17 +8,20 @@ from typing import Any, Dict, List
 from celery import Task, chord
 
 from recognizeapp.c import app
-from recognizeapp.utils import (Dataset, chop_microseconds, dedupe_images,
-                                encode_faces, generate_report)
+from recognizeapp.utils import (
+    Dataset,
+    chop_microseconds,
+    dedupe_images,
+    encode_faces,
+    generate_report,
+)
 
 WORKERS = 16
 
 
 def notify_status(counter: int, filepath: str, task: Task, size: int, **kwargs):
     """Update task status."""
-    task.update_state(
-        state="PROGRESS", meta=json.dumps({"file": filepath, "counter": counter})
-    )
+    task.update_state(state="PROGRESS", meta=json.dumps({"file": filepath, "counter": counter}))
     task.send_event("task-progress", current=counter, total=size)
 
 
@@ -31,7 +34,6 @@ def convert_dict_keys_to_str(input_dict: Dict[Path, Any]) -> Dict[str, Any]:
 def encode_chunk(
     self: Task,
     files: List[str],
-    ids: str,
     config: Dict[str, Any],
     pre_encodings: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -40,9 +42,7 @@ def encode_chunk(
     size = len(files)
     callback = partial(notify_status, task=self, size=size)
 
-    return encode_faces(
-        files, ds.get_encoding_config(), pre_encodings, progress=callback
-    )
+    return encode_faces(files, ds.get_encoding_config(), pre_encodings, progress=callback)
 
 
 @app.task(bind=True)
@@ -68,9 +68,7 @@ def dedupe_chunk(
 
 
 @app.task(bind=True)
-def get_findings(
-    self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]
-) -> Dict[str, Any]:
+def get_findings(self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
     """Aggregate and save findings."""
     ds = Dataset(config)
     findings = dict(ChainMap(*results))
@@ -102,9 +100,7 @@ def get_findings(
 
 
 @app.task(bind=True)
-def get_encodings(
-    self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]
-) -> Dict[str, Any]:
+def get_encodings(self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
     """Aggregate and save encodings."""
     ds = Dataset(config)
     encodings = dict(ChainMap(*results))
@@ -154,10 +150,7 @@ def deduplicate_dataset(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
     chunks = get_chunks(list(encoded.keys()))
     size = len(chunks)
 
-    tasks = [
-        dedupe_chunk.s(chunk, f"{n}/{size}", config, existing_findings)
-        for n, chunk in enumerate(chunks)
-    ]
+    tasks = [dedupe_chunk.s(chunk, f"{n}/{size}", config, existing_findings) for n, chunk in enumerate(chunks)]
     dd = chord(tasks)(get_findings.s(config=config))
     return {"ds": str(ds), "async_result": str(dd)}
 
@@ -174,10 +167,7 @@ def process_dataset(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
 
     chunks = get_chunks(files)
     size = len(chunks)
-    tasks = [
-        encode_chunk.s(chunk, f"{n}/{size}", config, existing_encoded)
-        for n, chunk in enumerate(chunks)
-    ]
+    tasks = [encode_chunk.s(chunk, f"{n}/{size}", config, existing_encoded) for n, chunk in enumerate(chunks)]
     dd = chord(tasks)(get_encodings.s(config=config))
     return {
         "dataset": str(ds),
@@ -185,4 +175,3 @@ def process_dataset(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
         "start_time": str(now),
         "chunks": len(chunks),
     }
-    return result

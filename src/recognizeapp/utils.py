@@ -6,6 +6,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
+from deepface import DeepFace
 from jinja2 import Template
 
 NO_FACE_DETECTED = "NO_FACE_DETECTED"
@@ -51,7 +52,7 @@ class Dataset:
         """Return the file name for performance metrics."""
         return self._get_filename("perf")
 
-    def reset(self):
+    def reset(self) -> None:
         """Delete all related database files to reset the dataset."""
         self.storage(self.encoding_db_name).unlink(missing_ok=True)
         self.storage(self.findings_db_name).unlink(missing_ok=True)
@@ -84,11 +85,7 @@ class Dataset:
     def get_files(self) -> List[str]:
         """Retrieve all valid image files from the dataset directory."""
         patterns = ("*.png", "*.jpg", "*.jpeg")
-        return [
-            str(f.absolute())
-            for f in self.storage(self.path).iterdir()
-            if any(f.match(p) for p in patterns)
-        ]
+        return [str(f.absolute()) for f in self.storage(self.path).iterdir() if any(f.match(p) for p in patterns)]
 
     def update_findings(self, findings: Dict[str, Any]) -> Path:
         """Update the findings database with new findings."""
@@ -114,7 +111,6 @@ class Dataset:
     def get_dedupe_config(self) -> Dict[str, Union[str, int, float, bool]]:
         """Retrieve deduplication configuration options."""
         return {
-            "threshold": self.options["threshold"],
             "model_name": self.options["model_name"],
             "detector_backend": self.options["detector_backend"],
         }
@@ -128,7 +124,6 @@ def chop_microseconds(delta: datetime.timedelta) -> datetime.timedelta:
 def encode_faces(
     files: list[str], options=None, pre_encodings=None, progress=None
 ) -> tuple[dict[str, Union[str, list[float]]], int, int]:
-    from deepface import DeepFace
 
     if not callable(progress):
         progress = lambda *a: True
@@ -155,9 +150,7 @@ def encode_faces(
     return results, added, existing
 
 
-def get_chunks(
-    elements: list[Any], max_len=multiprocessing.cpu_count()
-) -> list[list[Any]]:
+def get_chunks(elements: list[Any], max_len=multiprocessing.cpu_count()) -> list[list[Any]]:
     processes = min(len(elements), max_len)
     chunk_size = len(elements) // processes
     chunks = [elements[i : i + chunk_size] for i in range(0, len(elements), chunk_size)]
@@ -174,8 +167,9 @@ def dedupe_images(
     """Find duplicate images based on face encodings."""
     if not callable(progress):
         progress = lambda *a: None
-
-    findings = defaultdict(list, pre_findings or {})
+    findings: defaultdict = defaultdict(list)
+    if pre_findings:
+        findings.update(pre_findings)
     for n, file1 in enumerate(files):
         progress(n, file1)
         enc1 = encodings[file1]
@@ -185,11 +179,14 @@ def dedupe_images(
             continue
         # Skip if comparing the same file or enc2 is not valid
         for file2, enc2 in encodings.items():
-            if file1 == file2 or file2 in [x[0] for x in findings.get(file1, [])]:
+            if file1 == file2:
+                continue
+            if file2 in [x[0] for x in findings.get(file1, [])]:
+                continue
+            if file2 in findings:
                 continue
             if enc2 == NO_FACE_DETECTED:
                 continue
-            print(111.1, options)
             res = DeepFace.verify(enc1, enc2, **(options or {}))
             findings[file1].append([file2, res["distance"]])
     return findings
@@ -201,7 +198,7 @@ def generate_report(
     metrics: Dict[str, Any],
     report_file: Path,
     save_to_file: bool = True,
-) -> Path:
+) -> None:
     """Generate an HTML report from findings and metrics."""
 
     def _resolve(p: Union[Path, str]) -> Union[Path, str]:
@@ -223,7 +220,6 @@ def generate_report(
         report_file.write_text(rendered_content, encoding="utf-8")
         print(f"Report successfully saved to {report_file}")
 
-    return rendered_content
 
 def distance_to_similarity(distance):
     return 1 - distance

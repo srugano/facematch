@@ -16,6 +16,7 @@ dependencies = [
     "redis>=5.2.1",
     "flower>=2.0.1",
     "gevent>=24.11.1",
+    "ipdb>=0.13.13",
 ]
 
 [project.scripts]
@@ -29,3 +30,6 @@ dev-dependencies = [
     "isort>=5.13.2",
     "watchdog>=6.0.0",
 ]
+
+[tool.isort]
+profile = "black"
