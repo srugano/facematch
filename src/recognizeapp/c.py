@@ -1,3 +1,21 @@
+import logging
+import sys
+
+# Configure global logging
+logging.basicConfig(
+    level=logging.INFO,  # Log level (INFO, DEBUG, etc.)
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # Log to stdout
+        logging.FileHandler("celery_tasks.log", mode="a"),  # Optional log file
+    ],
+)
+
+# Set Celery-specific logging level if necessary
+celery_logger = logging.getLogger("celery")
+celery_logger.setLevel(logging.INFO)
+
+# Celery application setup
 from celery import Celery
 
 app = Celery(
@@ -8,14 +26,13 @@ app = Celery(
 
 app.config_from_object("recognizeapp.c", namespace="CELERY_")
 app.conf.update(
-    task_serializer="json",  # Use JSON for task arguments
-    accept_content=["json"],  # Accept only JSON
-    # result_serializer="json",            # Use JSON for results
-    timezone="UTC",  # Ensure consistent timezone
-    enable_utc=True,  # Use UTC timestamps
-    task_track_started=True,  # Track task start
-    task_time_limit=3600,  # Set a timeout for tasks (in seconds)
-    task_acks_late=True,  # Ensure task acknowledgment only after completion
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
+    enable_utc=True,
+    task_track_started=True,
+    task_acks_late=True,
 )
 
 CELERY_DEBUG = True

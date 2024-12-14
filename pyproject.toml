@@ -17,6 +17,7 @@ dependencies = [
     "flower>=2.0.1",
     "gevent>=24.11.1",
     "ipdb>=0.13.13",
+    "tqdm>=4.67.1",
 ]
 
 [project.scripts]

@@ -70,6 +70,9 @@ def validate_and_adjust_options(options: Dict[str, Any]) -> Dict[str, Any]:
     return options
 
 
+from tqdm import tqdm
+
+
 def process_files(config, num_processes, pre_findings):
     ds = Dataset(config)
     start_time = datetime.now()
@@ -77,44 +80,51 @@ def process_files(config, num_processes, pre_findings):
     total_files = ds.get_files()
     chunks = get_chunks(total_files, num_processes)
 
-    # Encode faces in parallel
-    with multiprocessing.Pool(processes=num_processes) as pool:
-        try:
-            partial_enc = pool.map(
-                partial(
-                    encode_faces,
-                    options=ds.get_encoding_config(),
-                    pre_encodings=ds.get_encoding(),
-                ),
-                chunks,
-            )
-        except KeyboardInterrupt:
-            pool.terminate()
-            pool.close()
     encodings = {}
     added = exiting = 0
-    for d, a, e in partial_enc:
-        added += a
-        exiting += e
-        encodings.update(d)
-    encoding_time = datetime.now()
+
+    # Encode faces in parallel with tqdm progress tracking
     with multiprocessing.Pool(processes=num_processes) as pool:
         try:
-            partial_find = pool.map(
-                partial(
-                    dedupe_images,
-                    options=ds.get_dedupe_config(),
-                    encodings=encodings,
-                    pre_findings=pre_findings,
-                ),
-                chunks,
-            )
+            with tqdm(total=len(chunks), desc="Encoding chunks", unit="chunk") as pbar:
+                for result in pool.imap_unordered(
+                    partial(
+                        encode_faces,
+                        options=ds.get_encoding_config(),
+                        pre_encodings=ds.get_encoding(),
+                    ),
+                    chunks,
+                ):
+                    pbar.update(1)
+                    d, a, e = result
+                    added += a
+                    exiting += e
+                    encodings.update(d)
         except KeyboardInterrupt:
             pool.terminate()
             pool.close()
+
+    encoding_time = datetime.now()
     findings = {}
-    for d in partial_find:
-        findings.update(d)
+
+    # Deduplicate faces in parallel with tqdm progress tracking
+    with multiprocessing.Pool(processes=num_processes) as pool:
+        try:
+            with tqdm(total=len(chunks), desc="Deduplicating chunks", unit="chunk") as pbar:
+                for result in pool.imap_unordered(
+                    partial(
+                        dedupe_images,
+                        options=ds.get_dedupe_config(),
+                        encodings=encodings,
+                        pre_findings=pre_findings,
+                    ),
+                    chunks,
+                ):
+                    pbar.update(1)
+                    findings.update(result)
+        except KeyboardInterrupt:
+            pool.terminate()
+            pool.close()
 
     # Capture performance metrics
     end_time = datetime.now()

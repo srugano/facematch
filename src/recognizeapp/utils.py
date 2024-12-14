@@ -73,6 +73,7 @@ class Dataset:
     def get_perf(self) -> Dict[Path, Any]:
         """Load performance metrics from the performance database file."""
         if self.storage(self.runinfo_db_name).exists():
+            print("Loaded findings from file:")
             return json.loads(self.storage(self.runinfo_db_name).read_text())
         return {}
 
@@ -206,6 +207,9 @@ def generate_report(
             return NO_FACE_DETECTED
         return Path(p).absolute().relative_to(working_dir)
 
+    if not findings:
+        return "<html><body><h1>No findings available</h1></body></html>"
+
     template_path = Path(__file__).parent / "report.html"
     template = Template(template_path.read_text())
 
@@ -213,7 +217,7 @@ def generate_report(
     for img, duplicates in findings.items():
         for dup in duplicates:
             results.append([_resolve(img), _resolve(dup[0]), dup[1]])
-
+    print(f"Found {len(results)} duplicates")
     results = sorted(results, key=lambda x: x[2])
     rendered_content = template.render(metrics=metrics, findings=results)
     if save_to_file:

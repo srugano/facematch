@@ -1,4 +1,6 @@
 import json
+import logging
+import sys
 from collections import ChainMap
 from datetime import datetime, timedelta
 from functools import partial
@@ -16,7 +18,9 @@ from recognizeapp.utils import (
     generate_report,
 )
 
-WORKERS = 16
+WORKERS = 5
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
 def notify_status(counter: int, filepath: str, task: Task, size: int, **kwargs):
@@ -39,11 +43,23 @@ def encode_chunk(
     pre_encodings: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Encode faces in a chunk of files."""
-    ds = Dataset(config)
-    size = len(files)
-    callback = partial(notify_status, task=self, size=size)
+    # Initialize logger
+    logger.info(f"Processing chunk {chunk_id} with {len(files)} files.")
 
-    return encode_faces(files, ds.get_encoding_config(), pre_encodings, progress=callback)
+    try:
+        ds = Dataset(config)
+        size = len(files)
+        callback = partial(notify_status, task=self, size=size)
+
+        logger.debug(f"Encoding configuration for chunk {chunk_id}: {ds.get_encoding_config()}")
+        result = encode_faces(files, ds.get_encoding_config(), pre_encodings, progress=callback)
+
+        logger.info(f"Successfully processed chunk {chunk_id}. Encoded {len(result)} files.")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error processing chunk {chunk_id}: {e}", exc_info=True)
+        raise
 
 
 @app.task(bind=True)
@@ -71,10 +87,9 @@ def dedupe_chunk(
 @app.task(bind=True)
 def get_findings(self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
     """Aggregate and save findings."""
-    # Extract only the first element (dictionary) from each tuple in results
-    dictionaries = [result[0] for result in results if isinstance(result, tuple) and isinstance(result[0], dict)]
+    # dictionaries = [result[0] for result in results if isinstance(result, tuple) and isinstance(result[0], dict)]
     ds = Dataset(config)
-    findings = dict(ChainMap(*dictionaries))
+    findings = dict(ChainMap(*results))
     ds.update_findings(findings)
 
     end_time = datetime.now()
@@ -128,16 +143,16 @@ def get_encodings(self: Task, results: List[Dict[str, Any]], config: Dict[str, A
 def save_report(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
     """Generate and save a report."""
     ds = Dataset(config)
-    content = generate_report(ds.path, ds.get_findings(), ds.get_perf())
     report_file = Path(ds._get_filename("_report", ".html"))
-    report_file.write_text(content, encoding="utf-8")
-    print("Report available at: ", report_file.absolute())
+    generate_report(ds.path, ds.get_findings(), ds.get_perf(), report_file)
+    logger.info("Report available at: ", report_file.absolute())
     return {**config, "Report available at: ": str(report_file.absolute())}
 
 
-def get_chunks(elements: List[Any]) -> List[List[Any]]:
+def get_chunks(elements: List[Any], processes: int = WORKERS) -> List[List[Any]]:
     """Divide elements into chunks for parallel processing."""
-    processes = min(len(elements), WORKERS)
+    if processes <= 0:  # Fallback to 1 process if no valid number of workers is provided
+        processes = 1
     chunk_size = max(1, len(elements) // processes)
     return [elements[i : i + chunk_size] for i in range(0, len(elements), chunk_size)]
 
@@ -145,37 +160,87 @@ def get_chunks(elements: List[Any]) -> List[List[Any]]:
 @app.task(bind=True)
 def deduplicate_dataset(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
     """Deduplicate the dataset."""
-    ds = Dataset(config)
-    encoded = convert_dict_keys_to_str(ds.get_encoding())
-    existing_findings = ds.get_findings()
+    logger.info("Starting deduplicate_dataset task.")
+    logger.info(f"Configuration received: {config}")
 
-    now = datetime.now()
-    # config["sys"]["dedupe_start_time"] = int(round(now.timestamp()))
-    chunks = get_chunks(list(encoded.keys()))
-    size = len(chunks)
+    # Ensure `sys` key is present in the config
+    config.setdefault("sys", {})
+    config["sys"]["dedupe_start_time"] = int(round(datetime.now().timestamp()))
 
-    tasks = [dedupe_chunk.s(chunk, f"{n}/{size}", config, existing_findings) for n, chunk in enumerate(chunks)]
-    dd = chord(tasks)(get_findings.s(config=config))
-    return {"ds": str(ds), "async_result": str(dd)}
+    try:
+        # Load dataset and prepare encodings
+        ds = Dataset(config)
+        logger.info(f"Loaded dataset from path: {config['path']}")
+
+        encoded = convert_dict_keys_to_str(ds.get_encoding())
+        logger.info(f"Loaded {len(encoded)} encodings.")
+
+        existing_findings = ds.get_findings()
+        logger.info(f"Loaded {len(existing_findings)} existing findings.")
+
+        # Prepare chunks for deduplication
+        chunks = get_chunks(list(encoded.keys()))
+        size = len(chunks)
+        logger.info(f"Divided encodings into {size} chunks for parallel deduplication.")
+
+        # Prepare deduplication tasks
+        tasks = [dedupe_chunk.s(chunk, f"{n}/{size}", config, existing_findings) for n, chunk in enumerate(chunks)]
+        logger.info("Prepared deduplication tasks.")
+
+        # Create a chord for deduplication tasks
+        dd = chord(tasks)(get_findings.s(config=config))
+        logger.info("Submitted deduplication tasks to Celery.")
+
+        return {"status": "deduplication_started", "async_result": str(dd)}
+
+    except Exception as e:
+        logger.error("An error occurred in deduplicate_dataset.", exc_info=True)
+        raise
 
 
 @app.task(bind=True)
 def process_dataset(self: Task, config: Dict[str, Any]) -> Dict[str, Any]:
     """Process the dataset for encoding and deduplication."""
-    now = datetime.now()
-    config["sys"] = {"encode_start_time": int(round(now.timestamp()))}
+    logger.info("Starting process_dataset task.")
+    logger.info(f"Configuration received: {config}")
 
-    ds = Dataset(config)
-    existing_encoded = convert_dict_keys_to_str(ds.get_encoding())
-    files = ds.get_files()
+    # Ensure `sys` key exists
+    config.setdefault("sys", {"encode_start_time": int(datetime.now().timestamp())})
 
-    chunks = get_chunks(files)
-    size = len(chunks)
-    tasks = [encode_chunk.s(chunk, f"{n}/{size}", config, existing_encoded) for n, chunk in enumerate(chunks)]
-    dd = chord(tasks)(get_encodings.s(config=config))
-    return {
-        "dataset": str(ds),
-        "async_result": str(dd),
-        "start_time": str(now),
-        "chunks": len(chunks),
-    }
+    try:
+        ds = Dataset(config)
+        files = ds.get_files()
+        chunks = get_chunks(files)
+
+        # Prepare encoding tasks
+        tasks = [
+            encode_chunk.s(chunk, f"{n}/{len(chunks)}", config, ds.get_encoding()) for n, chunk in enumerate(chunks)
+        ]
+        logger.info("Prepared encoding tasks.")
+
+        # Define the workflow with a chord and subsequent tasks
+        chord_workflow = chord(tasks)(process_encodings_and_continue.s(config))
+        logger.info(f"Submitted workflow with chord: {chord_workflow.id}")
+
+        return {"status": "submitted", "async_result": str(chord_workflow)}
+
+    except Exception as e:
+        logger.error("An error occurred in process_dataset.", exc_info=True)
+        raise
+
+
+@app.task(bind=True)
+def process_encodings_and_continue(self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
+    """Process encodings, deduplicate, and trigger report generation."""
+    logger.info("Received encoding results. Preparing deduplication and report tasks.")
+
+    try:
+        # Chain deduplication and report tasks
+        workflow = (deduplicate_dataset.s(config=config) | save_report.s(config=config)).apply_async()
+        logger.info(f"Workflow for deduplication and reporting submitted: {workflow.id}")
+
+    except Exception as e:
+        logger.error("An error occurred while processing encodings.", exc_info=True)
+        raise
+
+    return {"status": "workflow_started"}
