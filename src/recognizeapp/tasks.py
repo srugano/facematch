@@ -71,8 +71,10 @@ def dedupe_chunk(
 @app.task(bind=True)
 def get_findings(self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
     """Aggregate and save findings."""
+    # Extract only the first element (dictionary) from each tuple in results
+    dictionaries = [result[0] for result in results if isinstance(result, tuple) and isinstance(result[0], dict)]
     ds = Dataset(config)
-    findings = dict(ChainMap(*results))
+    findings = dict(ChainMap(*dictionaries))
     ds.update_findings(findings)
 
     end_time = datetime.now()
@@ -104,7 +106,8 @@ def get_findings(self: Task, results: List[Dict[str, Any]], config: Dict[str, An
 def get_encodings(self: Task, results: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
     """Aggregate and save encodings."""
     ds = Dataset(config)
-    encodings = dict(ChainMap(*results))
+    dictionaries = [result[0] for result in results if isinstance(result, tuple) and isinstance(result[0], dict)]
+    encodings = dict(ChainMap(*dictionaries))
     ds.update_encodings(encodings)
 
     end_time = datetime.now()

@@ -62,7 +62,7 @@ dedupe data/IMAGES -p 4
 #### 1. Start a Celery Worker
 In the first terminal, start a Celery worker:
 ```bash
-watchmedo auto-restart --directory=./src/ --pattern *.py --recursive -- celery -E -A recognizeapp.c.app worker
+watchmedo auto-restart --directory=./src/ --pattern *.py --recursive -- celery -A recognizeapp.c.app worker
 ```
 
 #### 2. Run Deduplication with Queueing
