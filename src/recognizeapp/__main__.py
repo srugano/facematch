@@ -12,7 +12,7 @@ from recognizeapp.utils import (
     dedupe_images,
     encode_faces,
     get_chunks,
-    show_progress, generate_html_report,
+    show_progress, generate_html_report, generate_csv_report,
 )
 
 NO_FACE_DETECTED = "NO FACE DETECTED"
@@ -71,8 +71,10 @@ def validate_and_adjust_options(options: Dict[str, Any]) -> Dict[str, Any]:
     return options
 
 
-def process_files(config, num_processes, threshold, progress=None, edges=False):
+def process_files(config, num_processes, threshold, progress=None, reset=False):
     ds = Dataset(config)
+    if reset:
+        ds.reset()
     pre_findings = ds.get_findings()
     pre_encoding = ds.get_encoding()
 
@@ -186,27 +188,27 @@ def process_files(config, num_processes, threshold, progress=None, edges=False):
 @click.option("--symmetric", is_flag=True, help="")
 @click.option("--edges", type=int, default=0, help="")
 def cli(
-    path,
-    processes,
-    reset,
-    queue,
-    report,
-    symmetric,
-    dedupe_threshold,
-    report_threshold,
-    progress,
-    edges,
-    **depface_options,
+        path,
+        processes,
+        reset,
+        queue,
+        report,
+        symmetric,
+        dedupe_threshold,
+        report_threshold,
+        progress,
+        edges,
+        **depface_options,
 ):
     # Filter image files in the provided folder
     depface_options = validate_and_adjust_options(depface_options)
     ds = Dataset({"path": path, "options": depface_options})
     process_start = datetime.now()
     # Reset dataset if requested
-    if reset:
-        ds.reset()
-    else:
-        ds.storage(ds.findings_db_name).unlink(True)
+    # if reset:
+    #     ds.reset()
+    # else:
+    #     ds.storage(ds.findings_db_name).unlink(True)
     if progress:
         progress = show_progress
     else:
@@ -219,7 +221,7 @@ def cli(
     if queue:
         from recognizeapp.tasks import process_dataset
 
-        config = {"options": {**depface_options}, "path": path}
+        config = {"options": {**depface_options}, "path": path, "dedupe_threshold": dedupe_threshold, "reset":reset}
         process_dataset.delay(config)
     else:
         click.echo(f"Spawn {processes} processes")
@@ -233,7 +235,7 @@ def cli(
             click.echo(f"{k:<25}: {v}")
 
         encodings, findings, metrics = process_files(
-            config, processes, progress=progress, threshold=dedupe_threshold
+            config, processes, progress=progress, threshold=dedupe_threshold, reset=reset
         )
         process_end = datetime.now()
         process_time = process_end - process_start
@@ -259,12 +261,23 @@ def cli(
                 threshold=report_threshold,
                 edges=edges,
             )
+            content1, __ = generate_csv_report(
+                ds.get_findings(),
+                ds.get_perf(),
+                symmetric=symmetric,
+                threshold=report_threshold,
+                edges=edges,
+            )
             if edges:
                 report_file = Path(ds._get_filename(f"report-{edges}", ".html"))
+                csv_file = Path(ds._get_filename(f"report-{edges}", ".csv"))
             else:
                 report_file = Path(ds._get_filename(f"report-{report_threshold}", ".html"))
+                csv_file = Path(ds._get_filename(f"report-{report_threshold}", ".csv"))
 
             report_file.write_text(content)
+            csv_file.write_text(content1)
+
             click.echo(f"Report saved to {report_file.absolute()}")
             click.secho("Report", fg="yellow")
             for k, v in opts.items():

@@ -1,25 +1,40 @@
 import datetime
 import gzip
 import json
+import logging
 import multiprocessing
 import pickle
 import sys
 import zipfile
 from collections import defaultdict
 from functools import cached_property
+from hashlib import md5
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from jinja2 import Template
 
+logger = logging.getLogger(__name__)
 NO_FACE_DETECTED = "NO_FACE_DETECTED"
 MULTIPLE_FACE_DETECTED = "MULTIPLE_FACE_DETECTED"
+FILE_ERROR = "GENERIC_ERROR"
+ERRORS = [NO_FACE_DETECTED, MULTIPLE_FACE_DETECTED, FILE_ERROR]
+
 NO_ENCODING = 999
 
-EncodingType = dict[str, Union[str, list[float]]]
-FindingType = list[str, str, float]
-SilencedType = list[str, str]
+EncodingType = dict[str, Union[str, list[float]]]  # {file: encoding}
+FindingRecord = tuple[str, str, float]  # [file1, file2, similarity]
+FindingType = list[Optional[FindingRecord]]
+SilencedType = list[str, str]  # [file1, file2]
+
+
+class PathEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Path):
+            return str(obj.name)
+
+        return super().default(obj)
 
 
 class Dataset:
@@ -118,7 +133,7 @@ class Dataset:
         #                      compresslevel=9) as zip_file:
         #     zip_file.writestr("data.json", data=json.dumps(encodings))
         #
-        self.storage(self.encoding_db_name).write_text(json.dumps(encodings))
+        self.storage(self.encoding_db_name).write_text(json.dumps(encodings, cls=PathEncoder))
         self._encodings = None
         return self.encoding_db_name
 
@@ -138,6 +153,9 @@ class Dataset:
             "detector_backend": self.options["detector_backend"],
         }
 
+    def get_dedupe_threshold(self):
+        return self.config["dedupe_threshold"]
+
 
 def show_progress(a, b):
     sys.stdout.write(".")
@@ -149,7 +167,7 @@ def chop_microseconds(delta):
 
 
 def encode_faces(
-    files: list[str], options=None, pre_encodings=None, progress=None
+        files: list[str], options=None, pre_encodings=None, progress=None
 ) -> tuple[EncodingType, int, int]:
     from deepface import DeepFace
 
@@ -173,28 +191,29 @@ def encode_faces(
                 results[file] = result[0]["embedding"]
                 added += 1
         except TypeError as e:
-            results[file] = str(e)
+            logger.exception(e)
+            results[file] = FILE_ERROR
         except ValueError:
             results[file] = NO_FACE_DETECTED
     return results, added, existing
 
 
 def get_chunks(
-    elements: list[Any], max_len=multiprocessing.cpu_count()
+        elements: list[Any], max_len=multiprocessing.cpu_count()
 ) -> list[list[Any]]:
     processes = min(len(elements), max_len)
     chunk_size = len(elements) // processes
-    chunks = [elements[i : i + chunk_size] for i in range(0, len(elements), chunk_size)]
+    chunks = [elements[i: i + chunk_size] for i in range(0, len(elements), chunk_size)]
     return chunks
 
 
 def dedupe_images(
-    files: list[str],
-    encodings: dict[str, Union[str, list[float]]],
-    dedupe_threshold: float,
-    options: dict[str, Any] = None,
-    pre_findings=None,
-    progress=None,
+        files: list[str],
+        encodings: dict[str, Union[str, list[float]]],
+        dedupe_threshold: float,
+        options: dict[str, Any] = None,
+        pre_findings=None,
+        progress=None,
 ) -> FindingType:
     from deepface import DeepFace
 
@@ -209,7 +228,7 @@ def dedupe_images(
     for n, file1 in enumerate(files):
         progress(n, file1)
         enc1 = encodings[file1]
-        if enc1 in [NO_FACE_DETECTED, MULTIPLE_FACE_DETECTED]:
+        if enc1 in ERRORS:
             findings[file1].append([enc1, NO_ENCODING])
             continue
         for file2, enc2 in encodings.items():
@@ -219,38 +238,42 @@ def dedupe_images(
                 continue
             if file2 in findings:
                 continue
-            if enc2 in [NO_FACE_DETECTED, MULTIPLE_FACE_DETECTED]:
+            if enc2 in ERRORS:
                 continue
             res = DeepFace.verify(enc1, enc2, **config)
             similarity = float(1 - res["distance"])
-            if similarity > dedupe_threshold:
+            if similarity >= dedupe_threshold:
                 findings[file1].append([file2, similarity])
     results: FindingType = []
     for img, duplicates in findings.items():
         for dup in duplicates:
-            results.append([img, dup[0], dup[1]])
+            results.append((img, dup[0], dup[1]))
     return results
 
 
 def _generate_report(
-    findings,
-    metrics,
-    symmetric=False,
-    threshold=0.4,
-    edges=0,
-    template_name="report.html",
+        findings,
+        metrics,
+        symmetric=False,
+        threshold=0.4,
+        edges=0,
+        template_name="report.html",
 ) -> tuple[str, dict]:
     template = (Path(__file__).parent / template_name).read_text()
 
     results = []
     added = []
+
+    def _get_pair_key(f1, f2):
+        return "=="
+
     if edges > 0:
         threshold = 0.0
         errors = []
         top = 0
         bottom = 0
         for file, other, similarity in findings:
-            pair_key = hash("_".join(sorted([file, other])))
+            pair_key = _get_pair_key(file, other)
             if pair_key in added:
                 continue
             if similarity == NO_ENCODING:
@@ -265,7 +288,7 @@ def _generate_report(
                 break
         results.append(["-", "-", "-", "-"])
         for file, other, similarity in findings[::-1]:
-            pair_key = hash("_".join(sorted([file, other])))
+            pair_key = _get_pair_key(file, other)
             if pair_key in added:
                 continue
             added.append(pair_key)
@@ -278,12 +301,13 @@ def _generate_report(
         results.extend(errors)
     else:
         for file, other, similarity in findings:
-            pair_key = hash("_".join(sorted([file, other])))
+            # pair_key = str(md5(("_".join(sorted([file, other]))).encode()).hexdigest())
+            pair_key = _get_pair_key(file, other)
             # if not symmetric and (pair_key in added):
             #     continue
-            added.append(pair_key)
-            if similarity > threshold:
-                results.append([file, other, similarity, pair_key])
+            # added.append(pair_key)
+            if similarity >= threshold:
+                results.append([Path(file).name, Path(other).name, similarity, pair_key])
     options = {
         "edges": edges,
         "threshold": threshold,
@@ -293,13 +317,13 @@ def _generate_report(
     }
     metrics["report"] = options
     return (
-        Template(template).render(metrics=metrics, findings=results, edges=edges),
-        options,
+        Template(template).render(metrics={"Report": options}, findings=results, edges=edges),
+        options
     )
 
 
 def generate_html_report(
-    findings, metrics, symmetric=False, threshold=0.4, edges=0
+        findings: FindingType, metrics: dict[str, Any], symmetric=False, threshold=0.4, edges=0
 ) -> tuple[str, dict]:
     return _generate_report(
         findings,
@@ -312,7 +336,7 @@ def generate_html_report(
 
 
 def generate_csv_report(
-    working_dir, findings, metrics, symmetric=False, threshold=0.4, edges=0
+        working_dir, findings, metrics, symmetric=False, threshold=0.4, edges=0
 ) -> tuple[str, dict]:
     return _generate_report(
         findings,
