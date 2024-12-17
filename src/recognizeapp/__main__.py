@@ -3,7 +3,7 @@ import tracemalloc
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 import click
 
@@ -11,8 +11,8 @@ from recognizeapp.utils import (
     Dataset,
     dedupe_images,
     encode_faces,
-    generate_report,
     get_chunks,
+    show_progress, generate_html_report,
 )
 
 NO_FACE_DETECTED = "NO FACE DETECTED"
@@ -63,20 +63,24 @@ def validate_and_adjust_options(options: Dict[str, Any]) -> Dict[str, Any]:
     backend = options["detector_backend"]
     if not validate_model_backend(model, backend):
         click.echo(
-            f"Error: Incompatible model-backend pair: Model '{model}' does not support Backend '{backend}'.",
+            f"Error: Incompatible model-backend pair: Model '{model}' does not support Backend '{backend}'.\n"
+            f"choose one of {",".join(MODEL_BACKEND_COMPATIBILITY.get(model, []))}",
             err=True,
         )
         raise click.Abort()
     return options
 
 
-def process_files(config, num_processes, pre_findings):
+def process_files(config, num_processes, threshold, progress=None, edges=False):
     ds = Dataset(config)
-    start_time = datetime.now()
+    pre_findings = ds.get_findings()
+    pre_encoding = ds.get_encoding()
+
     tracemalloc.start()
     total_files = ds.get_files()
     chunks = get_chunks(total_files, num_processes)
 
+    start_time = datetime.now()
     # Encode faces in parallel
     with multiprocessing.Pool(processes=num_processes) as pool:
         try:
@@ -84,7 +88,8 @@ def process_files(config, num_processes, pre_findings):
                 partial(
                     encode_faces,
                     options=ds.get_encoding_config(),
-                    pre_encodings=ds.get_encoding(),
+                    pre_encodings=pre_encoding,
+                    progress=progress,
                 ),
                 chunks,
             )
@@ -103,18 +108,21 @@ def process_files(config, num_processes, pre_findings):
             partial_find = pool.map(
                 partial(
                     dedupe_images,
+                    dedupe_threshold=threshold,
                     options=ds.get_dedupe_config(),
                     encodings=encodings,
                     pre_findings=pre_findings,
+                    progress=progress,
                 ),
                 chunks,
             )
         except KeyboardInterrupt:
             pool.terminate()
             pool.close()
-    findings = {}
+    findings = []
     for d in partial_find:
-        findings.update(d)
+        findings.extend(d)
+    findings = sorted(findings, key=lambda x: -x[2])
 
     # Capture performance metrics
     end_time = datetime.now()
@@ -122,25 +130,38 @@ def process_files(config, num_processes, pre_findings):
     top_stats = snapshot.statistics("traceback")
 
     metrics = {
-        "Encoding Time": str(encoding_time - start_time),
-        "Deduplication Time": str(end_time - encoding_time),
-        "Total Time": str(end_time - start_time),
-        "RAM Mb": str(top_stats[0].size / 1024 / 1024),
-        "Processes": num_processes,
-        "------": "--------",
-        "Total Files": len(total_files),
-        "New Images": added,
-        "Database": len(encodings),
-        "Findings": len(findings),
-        "======": "======",
-        **config["options"],
+        "timing": {
+            "Encoding Time": str(encoding_time - start_time).split(".")[0],
+            "Deduplication Time": str(end_time - encoding_time).split(".")[0],
+            "Total Time": str(end_time - start_time).split(".")[0],
+        },
+        "perfs": {
+            "RAM Mb": str(top_stats[0].size / 1024 / 1024),
+            "Processes": num_processes,
+        },
+        "info": {
+            "Total Files": len(total_files),
+            "New Images": added,
+            "Database": len(encodings),
+            "Findings": len(findings),
+            "Threshold": threshold,
+        },
+        "options": config["options"],
     }
     return encodings, findings, metrics
 
 
 @click.command()
 @click.argument("path", type=click.Path(exists=True, file_okay=False))
-@click.option("--reset", is_flag=True, help="Reset the dataset (clear encodings and findings).")
+@click.option("--reset", is_flag=True, help="Reset the dataset (clear encodings.")
+@click.option("--progress", is_flag=True, help="Show progress in cli.")
+@click.option("--threshold", "-t", type=float, default=None, help="Model threshold")
+@click.option(
+    "--dedupe-threshold", type=float, default=0.4, help="Similarity hard limit"
+)
+@click.option(
+    "--report-threshold", type=float, default=0.4, help="Similarity soft limit"
+)
 @click.option("--queue", is_flag=True, help="Queue the task for background processing.")
 @click.option("--report", is_flag=True, help="Generate a report after processing.")
 @click.option(
@@ -152,79 +173,47 @@ def process_files(config, num_processes, pre_findings):
 )
 @click.option(
     "--model-name",
-    type=click.Choice(
-        [
-            "VGG-Face",
-            "Facenet",
-            "Facenet512",
-            "OpenFace",
-            "DeepFace",
-            "DeepID",
-            "Dlib",
-            "ArcFace",
-            "SFace",
-            "GhostFaceNet",
-        ]
-    ),
+    type=click.Choice(MODEL_BACKEND_COMPATIBILITY.keys()),
     default="VGG-Face",
     help="Name of the face recognition model to use.",
 )
 @click.option(
     "--detector-backend",
-    type=click.Choice(
-        [
-            "opencv",
-            "retinaface",
-            "mtcnn",
-            "ssd",
-            "dlib",
-            "mediapipe",
-            "centerface",
-            "skip",
-        ]
-    ),
+    type=click.Choice(DEFAULT_BACKENDS.values()),
     default="retinaface",
     help="Face detection backend to use.",
 )
-@click.option("--verbose", is_flag=True, help="Enable verbose output for debugging.")
-def cli(path, processes, reset, queue, report, verbose, **depface_options):
-    """
-    CLI to process a folder of images to detect and deduplicate faces.
-
-    :param path: Path to the folder containing images.
-    :param processes: Number of processes to use.
-    :param reset: Reset the dataset (clear encodings and findings).
-    :param queue: Queue the task for background processing.
-    :param report: Generate a report after processing.
-    """
+@click.option("--symmetric", is_flag=True, help="")
+@click.option("--edges", type=int, default=0, help="")
+def cli(
+    path,
+    processes,
+    reset,
+    queue,
+    report,
+    symmetric,
+    dedupe_threshold,
+    report_threshold,
+    progress,
+    edges,
+    **depface_options,
+):
     # Filter image files in the provided folder
     depface_options = validate_and_adjust_options(depface_options)
-
-    patterns = ("*.png", "*.jpg", "*.jpeg")
-    files = [str(f.absolute()) for f in Path(path).iterdir() if any(f.match(p) for p in patterns)]
-    # Handle empty directories
-    if not files:
-        click.echo("No image files found in the provided directory. Exiting.", err=True)
-        return
-
-    # Ensure number of processes doesn't exceed the number of files
-    processes = min(len(files), processes)
-
-    if verbose:
-        click.echo(f"Model: {depface_options['model_name']}")
-        click.echo(f"Backend: {depface_options['detector_backend']}")
-        click.echo(f"Process: {processes}")
-
     ds = Dataset({"path": path, "options": depface_options})
-    report_file = Path(path) / f"_report_{depface_options['model_name']}_{depface_options['detector_backend']}.html"
-    click.echo(f"Processing {len(files)} files in {path}")
-
+    process_start = datetime.now()
     # Reset dataset if requested
     if reset:
         ds.reset()
     else:
         ds.storage(ds.findings_db_name).unlink(True)
+    if progress:
+        progress = show_progress
+    else:
+        progress = None
 
+    files = ds.get_files()
+    processes = min(len(files), processes)
     config = {"options": {**depface_options}, "path": path}
 
     if queue:
@@ -234,20 +223,49 @@ def cli(path, processes, reset, queue, report, verbose, **depface_options):
         process_dataset.delay(config)
     else:
         click.echo(f"Spawn {processes} processes")
-        pre_encodings = ds.get_encoding()
-        click.echo(f"Found {len(pre_encodings)} existing encodings")
-        pre_findings = ds.get_findings()
-        encodings, findings, metrics = process_files(config, processes, pre_findings)
-        for k, v in metrics.items():
+        click.echo(f"Found {len(ds.get_encoding())} existing encodings")
+        click.secho(f"Encoding configuration", fg="green")
+        for k, v in ds.get_encoding_config().items():
             click.echo(f"{k:<25}: {v}")
+
+        click.secho(f"Deduplication configuration", fg="green")
+        for k, v in ds.get_dedupe_config().items():
+            click.echo(f"{k:<25}: {v}")
+
+        encodings, findings, metrics = process_files(
+            config, processes, progress=progress, threshold=dedupe_threshold
+        )
+        process_end = datetime.now()
+        process_time = process_end - process_start
+        metrics["timing"]["Overall Time"] = str(process_time).split(".")[0]
+
+        for section, data in metrics.items():
+            click.secho(section, fg="yellow")
+            for k, v in data.items():
+                click.echo(f"  {k:<25}: {v}")
 
         ds.update_findings(findings)
         ds.update_encodings(encodings)
         ds.save_run_info(metrics)
 
+        click.secho("Files:", fg="yellow")
+        click.echo(f"Encoding saved to {ds.storage(ds.encoding_db_name).absolute()}")
+        click.echo(f"Findings saved to {ds.storage(ds.findings_db_name).absolute()}")
         if report:
-            generate_report(ds.path, ds.get_findings(), ds.get_perf(), report_file)
+            content, opts = generate_html_report(
+                ds.get_findings(),
+                ds.get_perf(),
+                symmetric=symmetric,
+                threshold=report_threshold,
+                edges=edges,
+            )
+            if edges:
+                report_file = Path(ds._get_filename(f"report-{edges}", ".html"))
+            else:
+                report_file = Path(ds._get_filename(f"report-{report_threshold}", ".html"))
 
-
-if __name__ == "__main__":
-    cli()
+            report_file.write_text(content)
+            click.echo(f"Report saved to {report_file.absolute()}")
+            click.secho("Report", fg="yellow")
+            for k, v in opts.items():
+                click.echo(f"  {k:<25}: {v}")

@@ -3,7 +3,7 @@ from collections import ChainMap
 from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from celery import Task, chord
 
@@ -13,7 +13,7 @@ from recognizeapp.utils import (
     chop_microseconds,
     dedupe_images,
     encode_faces,
-    generate_report,
+    generate_html_report,
 )
 
 WORKERS = 16
@@ -37,7 +37,7 @@ def encode_chunk(
     chunk_id: str,
     config: Dict[str, Any],
     pre_encodings: Dict[str, Any],
-) -> Dict[str, Any]:
+) -> tuple[dict[str, Union[str, list[float]]], int, int]:
     """Encode faces in a chunk of files."""
     ds = Dataset(config)
     size = len(files)
