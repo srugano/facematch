@@ -221,7 +221,12 @@ def cli(
     if queue:
         from recognizeapp.tasks import process_dataset
 
-        config = {"options": {**depface_options}, "path": path, "dedupe_threshold": dedupe_threshold, "reset":reset}
+        config = {"options": {**depface_options}, "path": path,
+                  "dedupe_threshold": dedupe_threshold,
+                  "report_threshold": report_threshold,
+                  "symmetric": symmetric,
+                  "edges": edges,
+                  "reset": reset}
         process_dataset.delay(config)
     else:
         click.echo(f"Spawn {processes} processes")
@@ -235,7 +240,7 @@ def cli(
             click.echo(f"{k:<25}: {v}")
 
         encodings, findings, metrics = process_files(
-            config, processes, progress=progress, threshold=dedupe_threshold, reset=reset
+            config, processes, progress=progress, threshold=dedupe_threshold, reset=reset,
         )
         process_end = datetime.now()
         process_time = process_end - process_start
@@ -263,7 +268,6 @@ def cli(
             )
             content1, __ = generate_csv_report(
                 ds.get_findings(),
-                ds.get_perf(),
                 symmetric=symmetric,
                 threshold=report_threshold,
                 edges=edges,
@@ -279,6 +283,7 @@ def cli(
             csv_file.write_text(content1)
 
             click.echo(f"Report saved to {report_file.absolute()}")
+            click.echo(f"CSV saved to {csv_file.absolute()}")
             click.secho("Report", fg="yellow")
             for k, v in opts.items():
                 click.echo(f"  {k:<25}: {v}")

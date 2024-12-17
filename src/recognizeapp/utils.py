@@ -221,8 +221,8 @@ def dedupe_images(
         progress = lambda *a: True
 
     findings = defaultdict(list)
-    if pre_findings:
-        findings.update(pre_findings)
+    # if pre_findings:
+    #     findings.update(pre_findings)
     config = options or {}
     config["silent"] = True
     for n, file1 in enumerate(files):
@@ -264,8 +264,8 @@ def _generate_report(
     results = []
     added = []
 
-    def _get_pair_key(f1, f2):
-        return "=="
+    def _get_pair_key(f1, f2) -> str:
+        return str(md5(("_".join(sorted([f1, f2]))).encode()).hexdigest())
 
     if edges > 0:
         threshold = 0.0
@@ -335,12 +335,11 @@ def generate_html_report(
     )
 
 
-def generate_csv_report(
-        working_dir, findings, metrics, symmetric=False, threshold=0.4, edges=0
+def generate_csv_report(findings, symmetric=False, threshold=0.4, edges=0
 ) -> tuple[str, dict]:
     return _generate_report(
         findings,
-        metrics,
+        {},
         symmetric=symmetric,
         threshold=threshold,
         edges=edges,
