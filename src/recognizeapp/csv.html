@@ -1,0 +1,2 @@
+{% for entry in findings %}{% if entry.0 != "-" %}{{ loop.counter }},{{ entry.0 }},{{ entry.1 }},{{ entry.2 }}{% endif %}
+{% endfor %}

@@ -1,15 +1,40 @@
 import datetime
+import gzip
 import json
+import logging
 import multiprocessing
+import pickle
+import sys
+import zipfile
 from collections import defaultdict
 from functools import cached_property
+from hashlib import md5
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from deepface import DeepFace
 from jinja2 import Template
 
+logger = logging.getLogger(__name__)
 NO_FACE_DETECTED = "NO_FACE_DETECTED"
+MULTIPLE_FACE_DETECTED = "MULTIPLE_FACE_DETECTED"
+FILE_ERROR = "GENERIC_ERROR"
+ERRORS = [NO_FACE_DETECTED, MULTIPLE_FACE_DETECTED, FILE_ERROR]
+
+NO_ENCODING = 999
+
+EncodingType = dict[str, Union[str, list[float]]]  # {file: encoding}
+FindingRecord = tuple[str, str, float]  # [file1, file2, similarity]
+FindingType = list[Optional[FindingRecord]]
+SilencedType = list[str, str]  # [file1, file2]
+
+
+class PathEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Path):
+            return str(obj.name)
+
+        return super().default(obj)
 
 
 class Dataset:
@@ -19,111 +44,132 @@ class Dataset:
 
     def __init__(self, config: Dict[str, Any]):
         self.config = {**config}
-        self.path: Path = Path(self.config.pop("path")).absolute()
-        self.options: Dict[str, Any] = config["options"]
-        self.storage: Callable[[Path], Path] = Path  # Default to Path to avoid mistakes
+        self.path = Path(self.config.pop("path")).absolute()
+        self.options = config["options"]
+        self.storage = Path  # to avoid mistakes
+        self._encoding = None
+        self._findings = None
 
     def __str__(self):
-        return f"<Dataset: {self.path.name}>"
+        return f"<Dataset: {Path(self.path).name}"
 
-    def _get_filename(self, prefix: str, suffix: str = ".json") -> Path:
-        """Generate a file name based on the prefix and dataset options."""
+    def _get_filename(self, prefix, suffix=".json") -> str:
         parts = [self.options["model_name"], self.options["detector_backend"]]
         extra = "_".join(parts)
-        return self.storage(self.path) / f"_{prefix}_{extra}{suffix}"
+        return str(self.storage(self.path) / f"_{prefix}_{extra}{suffix}")
 
     @cached_property
-    def encoding_db_name(self) -> Path:
-        """Return the file name for the encoding database."""
+    def encoding_db_name(self) -> str:
         return self._get_filename("encoding")
 
     @cached_property
-    def findings_db_name(self) -> Path:
-        """Return the file name for the findings database."""
+    def findings_db_name(self) -> str:
         return self._get_filename("findings")
 
     @cached_property
-    def silenced_db_name(self) -> Path:
-        """Return the file name for the silenced database."""
+    def silenced_db_name(self) -> str:
         return self._get_filename("silenced")
 
     @cached_property
-    def runinfo_db_name(self) -> Path:
-        """Return the file name for performance metrics."""
+    def runinfo_db_name(self) -> str:
         return self._get_filename("perf")
 
-    def reset(self) -> None:
-        """Delete all related database files to reset the dataset."""
-        self.storage(self.encoding_db_name).unlink(missing_ok=True)
-        self.storage(self.findings_db_name).unlink(missing_ok=True)
-        self.storage(self.silenced_db_name).unlink(missing_ok=True)
+    def reset(self):
+        self.storage(self.encoding_db_name).unlink(True)
+        self.storage(self.findings_db_name).unlink(True)
+        self.storage(self.silenced_db_name).unlink(True)
+        self.storage(self.runinfo_db_name).unlink(True)
 
-    def get_encoding(self) -> Dict[Path, Union[str, List[float]]]:
-        """Load the encodings from the encoding database file."""
-        if self.storage(self.encoding_db_name).exists():
-            return json.loads(self.storage(self.encoding_db_name).read_text())
-        return {}
+    def get_encoding(self) -> EncodingType:
+        if self._encoding is None:
+            try:
+                self._encoding = json.loads(
+                    self.storage(self.encoding_db_name).read_text()
+                )
+                # with zipfile.ZipFile(Path(self.encoding_db_name).absolute(), mode="r") as zip_file:
+                #     json.loads(zip_file.read("data.json"))
+            except (json.JSONDecodeError, FileNotFoundError):
+                self._encoding = {}
+        return self._encoding
 
-    def get_findings(self) -> Dict[Path, Any]:
-        """Load the findings from the findings database file."""
-        if self.storage(self.findings_db_name).exists():
-            return json.loads(self.storage(self.findings_db_name).read_text())
-        return {}
+    def get_findings(self) -> FindingType:
+        if self._findings is None:
+            try:
+                self._findings = json.loads(
+                    self.storage(self.findings_db_name).read_text()
+                )
+            except (json.JSONDecodeError, FileNotFoundError):
+                self._findings = {}
+        return self._findings
 
-    def get_perf(self) -> Dict[Path, Any]:
-        """Load performance metrics from the performance database file."""
+    def get_perf(self):
         if self.storage(self.runinfo_db_name).exists():
             return json.loads(self.storage(self.runinfo_db_name).read_text())
-        return {}
+        else:
+            return {}
 
-    def get_silenced(self) -> Dict[Path, Any]:
-        """Load the silenced findings from the silenced database file."""
+    def get_silenced(self) -> SilencedType:
         if self.storage(self.silenced_db_name).exists():
             return json.loads(self.storage(self.silenced_db_name).read_text())
-        return {}
+        else:
+            return {}
 
-    def get_files(self) -> List[str]:
-        """Retrieve all valid image files from the dataset directory."""
+    def get_files(self) -> list[str]:
         patterns = ("*.png", "*.jpg", "*.jpeg")
-        return [str(f.absolute()) for f in self.storage(self.path).iterdir() if any(f.match(p) for p in patterns)]
+        files = [
+            str(f.absolute())
+            for f in self.storage(self.path).iterdir()
+            if any(f.match(p) for p in patterns)
+        ]
+        return files
 
-    def update_findings(self, findings: Dict[str, Any]) -> Path:
-        """Update the findings database with new findings."""
+    def update_findings(self, findings):
         self.storage(self.findings_db_name).write_text(json.dumps(findings))
+        self._findings = None
         return self.findings_db_name
 
-    def update_encodings(self, encodings: Dict[str, Any]) -> Path:
-        """Update the encoding database with new encodings."""
-        self.storage(self.encoding_db_name).write_text(json.dumps(encodings))
+    def update_encodings(self, encodings):
+        # with zipfile.ZipFile(Path(self.encoding_db_name).absolute(), mode="w", compression=zipfile.ZIP_DEFLATED,
+        #                      compresslevel=9) as zip_file:
+        #     zip_file.writestr("data.json", data=json.dumps(encodings))
+        #
+        self.storage(self.encoding_db_name).write_text(json.dumps(encodings, cls=PathEncoder))
+        self._encodings = None
         return self.encoding_db_name
 
-    def save_run_info(self, info: Dict[str, Any]) -> None:
-        """Save performance metrics to the performance database."""
+    def save_run_info(self, info):
         self.storage(self.runinfo_db_name).write_text(json.dumps(info))
 
-    def get_encoding_config(self) -> Dict[str, Union[str, int, float, bool]]:
-        """Retrieve encoding configuration options."""
+    def get_encoding_config(self) -> dict[str, Union[str, int, float, bool]]:
         return {
             "model_name": self.options["model_name"],
             "detector_backend": self.options["detector_backend"],
         }
 
-    def get_dedupe_config(self) -> Dict[str, Union[str, int, float, bool]]:
-        """Retrieve deduplication configuration options."""
+    def get_dedupe_config(self) -> dict[str, Union[str, int, float, bool]]:
         return {
+            "threshold": self.options["threshold"],
             "model_name": self.options["model_name"],
             "detector_backend": self.options["detector_backend"],
         }
 
+    def get_dedupe_threshold(self):
+        return self.config["dedupe_threshold"]
 
-def chop_microseconds(delta: datetime.timedelta) -> datetime.timedelta:
-    """Remove microseconds from a timedelta."""
+
+def show_progress(a, b):
+    sys.stdout.write(".")
+    sys.stdout.flush()
+
+
+def chop_microseconds(delta):
     return delta - datetime.timedelta(microseconds=delta.microseconds)
 
 
 def encode_faces(
-    files: list[str], options=None, pre_encodings=None, progress=None
-) -> tuple[dict[str, Union[str, list[float]]], int, int]:
+        files: list[str], options=None, pre_encodings=None, progress=None
+) -> tuple[EncodingType, int, int]:
+    from deepface import DeepFace
 
     if not callable(progress):
         progress = lambda *a: True
@@ -140,44 +186,51 @@ def encode_faces(
         try:
             result = DeepFace.represent(file, **(options or {}))
             if len(result) > 1:
-                raise ValueError("More than one face detected")
-            results[file] = result[0]["embedding"]
-            added += 1
+                results[file] = MULTIPLE_FACE_DETECTED
+            else:
+                results[file] = result[0]["embedding"]
+                added += 1
         except TypeError as e:
-            results[file] = str(e)
+            logger.exception(e)
+            results[file] = FILE_ERROR
         except ValueError:
             results[file] = NO_FACE_DETECTED
     return results, added, existing
 
 
-def get_chunks(elements: list[Any], max_len=multiprocessing.cpu_count()) -> list[list[Any]]:
+def get_chunks(
+        elements: list[Any], max_len=multiprocessing.cpu_count()
+) -> list[list[Any]]:
     processes = min(len(elements), max_len)
     chunk_size = len(elements) // processes
-    chunks = [elements[i : i + chunk_size] for i in range(0, len(elements), chunk_size)]
+    chunks = [elements[i: i + chunk_size] for i in range(0, len(elements), chunk_size)]
     return chunks
 
 
 def dedupe_images(
-    files: List[str],
-    encodings: Dict[str, Union[str, List[float]]],
-    options: Optional[Dict[str, Any]] = None,
-    pre_findings: Optional[Dict[str, Any]] = None,
-    progress: Optional[Callable[[int, str], None]] = None,
-) -> Dict[str, List[Union[str, float]]]:
-    """Find duplicate images based on face encodings."""
+        files: list[str],
+        encodings: dict[str, Union[str, list[float]]],
+        dedupe_threshold: float,
+        options: dict[str, Any] = None,
+        pre_findings=None,
+        progress=None,
+) -> FindingType:
+    from deepface import DeepFace
+
     if not callable(progress):
-        progress = lambda *a: None
-    findings: defaultdict = defaultdict(list)
-    if pre_findings:
-        findings.update(pre_findings)
+        progress = lambda *a: True
+
+    findings = defaultdict(list)
+    # if pre_findings:
+    #     findings.update(pre_findings)
+    config = options or {}
+    config["silent"] = True
     for n, file1 in enumerate(files):
         progress(n, file1)
         enc1 = encodings[file1]
-        # Skip if the encoding is NO_FACE_DETECTED or not a list of floats
-        if enc1 == NO_FACE_DETECTED:
-            findings[file1].append([NO_FACE_DETECTED, 99])
+        if enc1 in ERRORS:
+            findings[file1].append([enc1, NO_ENCODING])
             continue
-        # Skip if comparing the same file or enc2 is not valid
         for file2, enc2 in encodings.items():
             if file1 == file2:
                 continue
@@ -185,40 +238,113 @@ def dedupe_images(
                 continue
             if file2 in findings:
                 continue
-            if enc2 == NO_FACE_DETECTED:
+            if enc2 in ERRORS:
                 continue
-            res = DeepFace.verify(enc1, enc2, **(options or {}))
-            findings[file1].append([file2, res["distance"]])
-    return findings
-
-
-def generate_report(
-    working_dir: Path,
-    findings: Dict[str, List[Union[str, float]]],
-    metrics: Dict[str, Any],
-    report_file: Path,
-    save_to_file: bool = True,
-) -> None:
-    """Generate an HTML report from findings and metrics."""
-
-    def _resolve(p: Union[Path, str]) -> Union[Path, str]:
-        if p == NO_FACE_DETECTED:
-            return NO_FACE_DETECTED
-        return Path(p).absolute().relative_to(working_dir)
-
-    template_path = Path(__file__).parent / "report.html"
-    template = Template(template_path.read_text())
-
-    results = []
+            res = DeepFace.verify(enc1, enc2, **config)
+            similarity = float(1 - res["distance"])
+            if similarity >= dedupe_threshold:
+                findings[file1].append([file2, similarity])
+    results: FindingType = []
     for img, duplicates in findings.items():
         for dup in duplicates:
-            results.append([_resolve(img), _resolve(dup[0]), dup[1]])
+            results.append((img, dup[0], dup[1]))
+    return results
 
-    results = sorted(results, key=lambda x: x[2])
-    rendered_content = template.render(metrics=metrics, findings=results)
-    if save_to_file:
-        report_file.write_text(rendered_content, encoding="utf-8")
-        print(f"Report successfully saved to {report_file}")
+
+def _generate_report(
+        findings,
+        metrics,
+        symmetric=False,
+        threshold=0.4,
+        edges=0,
+        template_name="report.html",
+) -> tuple[str, dict]:
+    template = (Path(__file__).parent / template_name).read_text()
+
+    results = []
+    added = []
+
+    def _get_pair_key(f1, f2) -> str:
+        return str(md5(("_".join(sorted([f1, f2]))).encode()).hexdigest())
+
+    if edges > 0:
+        threshold = 0.0
+        errors = []
+        top = 0
+        bottom = 0
+        for file, other, similarity in findings:
+            pair_key = _get_pair_key(file, other)
+            if pair_key in added:
+                continue
+            if similarity == NO_ENCODING:
+                errors.append([Path(file).name, other, similarity, pair_key])
+            else:
+                added.append(pair_key)
+                results.append(
+                    [Path(file).name, Path(other).name, similarity, pair_key]
+                )
+                top += 1
+            if top >= edges:
+                break
+        results.append(["-", "-", "-", "-"])
+        for file, other, similarity in findings[::-1]:
+            pair_key = _get_pair_key(file, other)
+            if pair_key in added:
+                continue
+            added.append(pair_key)
+            results.append([Path(file).name, Path(other).name, similarity, pair_key])
+            bottom += 1
+            if bottom >= edges:
+                break
+
+        results.append(["-", "-", "-", "-"])
+        results.extend(errors)
+    else:
+        for file, other, similarity in findings:
+            # pair_key = str(md5(("_".join(sorted([file, other]))).encode()).hexdigest())
+            pair_key = _get_pair_key(file, other)
+            # if not symmetric and (pair_key in added):
+            #     continue
+            # added.append(pair_key)
+            if similarity >= threshold:
+                results.append([Path(file).name, Path(other).name, similarity, pair_key])
+    options = {
+        "edges": edges,
+        "threshold": threshold,
+        "symmetric": symmetric,
+        "findings": len(findings),
+        "results": len(results),
+    }
+    metrics["report"] = options
+    return (
+        Template(template).render(metrics={"Report": options}, findings=results, edges=edges),
+        options
+    )
+
+
+def generate_html_report(
+        findings: FindingType, metrics: dict[str, Any], symmetric=False, threshold=0.4, edges=0
+) -> tuple[str, dict]:
+    return _generate_report(
+        findings,
+        metrics,
+        symmetric=symmetric,
+        threshold=threshold,
+        edges=edges,
+        template_name="report.html",
+    )
+
+
+def generate_csv_report(findings, symmetric=False, threshold=0.4, edges=0
+) -> tuple[str, dict]:
+    return _generate_report(
+        findings,
+        {},
+        symmetric=symmetric,
+        threshold=threshold,
+        edges=edges,
+        template_name="csv.html",
+    )
 
 
 def distance_to_similarity(distance):
